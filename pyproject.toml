@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mtax"
+version = "0.1.0"
+description = "Minimal MTAX library skeleton"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "autom8 @ git+https://github.com/cleairlabs/autom8.git",
+    "QBAF-Py @ git+https://github.com/TimKam/Quantitative-Bipolar-Argumentation.git",
+]
+
+[tool.setuptools.packages.find]
+include = ["mtax*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
