@@ -9,6 +9,15 @@ if TYPE_CHECKING:
     from mtax.agent import Agent
 
 
+#####################################################
+# DATA CLASSES
+#####################################################
+@dataclass(frozen=True)
+class Argument:
+    label: str
+    text: str
+
+
 @dataclass(frozen=True)
 class Relation:
     source: str
@@ -28,6 +37,8 @@ class Contribution:
 @dataclass
 class DialogueState:
     topics: list[str]
+    public_arguments: dict[str, Argument] = field(default_factory=dict)
+    public_relations: set[Relation] = field(default_factory=set)
     trace: list[Contribution] = field(default_factory=list)
     round_index: int = 0
 
@@ -42,15 +53,11 @@ class ExchangeResult:
     final_stances: dict[str, bool]
     trace: list[Contribution]
     metrics: dict[str, float | int | bool | object]
+#####################################################
 
 
 class MTAX:
-    def __init__(
-        self,
-        agents: list[Agent],
-        topics: list[str],
-        config: ExchangeConfig | None = None,
-    ) -> None:
+    def __init__(self, agents: list[Agent], topics: list[str], config: ExchangeConfig | None = None) -> None:
         self.agents = agents
         self.topics = topics
         self.config = config or ExchangeConfig()
@@ -64,17 +71,27 @@ class MTAX:
         if self._state.round_index >= self.config.max_rounds:
             return self._state
         for agent in self.agents:
+            agent.ingest_public_state(self._state)
             contribution = agent.step(self._state)
             if contribution is not None:
-                self._state.trace.append(
-                    replace(
-                        contribution,
-                        agent=agent.name,
-                        round_index=self._state.round_index,
-                    )
+                recorded = replace(
+                    contribution,
+                    agent=agent.name,
+                    round_index=self._state.round_index,
                 )
+                self._state.trace.append(recorded)
+                self._publish(recorded)
+                for current_agent in self.agents:
+                    current_agent.ingest_public_state(self._state)
         self._state.round_index += 1
         return self._state
+
+    def _publish(self, contribution: Contribution) -> None:
+        self._state.public_arguments[contribution.label] = Argument(
+            label=contribution.label,
+            text=contribution.argument,
+        )
+        self._state.public_relations.update(contribution.relations)
 
     def contributor_mapping(self, relation: Relation) -> tuple[str, int] | None:
         for contribution in self._state.trace:

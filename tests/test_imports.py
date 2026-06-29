@@ -1,21 +1,25 @@
 def test_public_imports() -> None:
     from mtax import (
         Agent,
+        Argument,
         Contribution,
         DialogueState,
         ExchangeConfig,
         ExchangeResult,
         MTAX,
+        MTAXTerminalUI,
         QBAFSemantics,
         Relation,
     )
 
     assert Agent
+    assert Argument
     assert Contribution
     assert DialogueState
     assert ExchangeConfig
     assert ExchangeResult
     assert MTAX
+    assert MTAXTerminalUI
     assert QBAFSemantics
     assert Relation
 
