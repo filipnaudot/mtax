@@ -7,8 +7,10 @@ def test_public_imports() -> None:
         Disclosure,
         ExchangeConfig,
         ExchangeResult,
+        InvalidAgentResponse,
         MTAX,
         MTAXTerminalUI,
+        Pass,
         QBAFSemantics,
         Relation,
     )
@@ -20,8 +22,10 @@ def test_public_imports() -> None:
     assert Disclosure
     assert ExchangeConfig
     assert ExchangeResult
+    assert InvalidAgentResponse
     assert MTAX
     assert MTAXTerminalUI
+    assert Pass
     assert QBAFSemantics
     assert Relation
 

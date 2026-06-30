@@ -44,7 +44,7 @@ result = exchange.result()
 - [x] Bipolar Multitree structure and guardrails
 - [x] Atomic multi-relation publication
 - [x] Abstract agent interface
-- [ ] QBAF-Py integration and semantics
+- [x] QBAF-Py integration and semantics
 - [ ] Top-r (and stance) resolution
 - [ ] Resolution-based stopping
 - [ ] Generic/abstract turn-taking class TurnTaking

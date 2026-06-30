@@ -13,53 +13,67 @@ import re
 
 from dotenv import load_dotenv
 from autom8 import Agent as Autom8Agent
+from pydantic import TypeAdapter
 
-from mtax import MTAXAgent, ExchangeConfig, MTAX
-from mtax.schema import Argument, Disclosure, Relation
+from mtax import InvalidAgentResponse, MTAXAgent, ExchangeConfig, MTAX
+from mtax.schema import Argument, Disclosure, Pass, Relation
 from mtax.utils import MTAXTerminalUI
 
 
 
 
 
-# ── System prompts ─────────────────────────────────────────────────────────────
+# System prompts
+_RESPONSE_ADAPTER = TypeAdapter(Disclosure | Pass)
+_RESPONSE_SCHEMA = json.dumps(_RESPONSE_ADAPTER.json_schema(), indent=2)
 
-_FORMAT = "\nReturn exactly one JSON object — no markdown, no extra text:\n" + json.dumps(Disclosure.model_json_schema(), indent=2)
-
-PRO_PROMPT = "You believe aliens probably exist. Argue for aliens_exist." + _FORMAT
-CON_PROMPT = "You believe aliens probably do not exist. Argue against aliens_exist." + _FORMAT
-
-
-
+PRO_PROMPT = "You believe aliens probably exist. Argue for aliens_exist."
+CON_PROMPT = "You believe aliens probably do not exist. Argue against aliens_exist."
+TURN_ORDER = ("agent-alien", "agent-no-aliens")
 
 
 
 
-# ── Agent ──────────────────────────────────────────────────────────────────────
+
+
 
 class LLMAgent(MTAXAgent):
-    def __init__(self, name: str, model, stance_prompt: str) -> None:
+    def __init__(self, name: str, model, stance_prompt: str, topic_relation_kind: str) -> None:
         super().__init__(name)
         self._model = model
         self._stance_prompt = stance_prompt
+        self._topic_relation_kind = topic_relation_kind
 
 
-    def contribute(self, violation_feedback=None) -> Disclosure | None:
+    def contribute(self, violation_feedback=None) -> Disclosure | Pass | None:
         message = self._contribution_prompt()
         if violation_feedback:
-            message += f"\n\nYour previous relation was rejected: {violation_feedback}\nPlease try again."
-        output = self._model.invoke(message=message, instructions=self._stance_prompt)
-        if isinstance(output, Disclosure):
+            message += (
+                "\n\nYour previous response was rejected by MTAX:\n"
+                f"{violation_feedback}\n"
+                "Correct the response and return a new valid Disclosure or Pass."
+            )
+        instructions = f"{self._stance_prompt}\n\n{self._response_instructions()}"
+        output = self._model.invoke(message=message, instructions=instructions, chat_id=0)
+        if isinstance(output, (Disclosure, Pass)):
             return output
         try:
             match = re.search(r"```(?:json)?\s*(.*?)\s*```", output, re.DOTALL)
-            return Disclosure.model_validate_json(match.group(1) if match else output)
-        except Exception:
-            return None
+            return _RESPONSE_ADAPTER.validate_json(match.group(1) if match else output)
+        except Exception as error:
+            raw_output = str(output).replace("\n", " ")[:300]
+            raise InvalidAgentResponse(
+                f"Response did not match the Disclosure or Pass schema: {error}. "
+                f"Raw output: {raw_output}"
+            ) from error
 
 
     def rate(self, argument) -> float:
-        output = self._model.invoke(message=self._initial_strength_prompt(argument), instructions=self._stance_prompt)
+        output = self._model.invoke(
+            message=self._initial_strength_prompt(argument),
+            instructions=self._stance_prompt,
+            chat_id=1,
+        )
         try:
             return max(0.0, min(1.0, float(output)))
         except (ValueError, TypeError):
@@ -74,7 +88,46 @@ class LLMAgent(MTAXAgent):
             f"  {relation.source} {relation.kind} {relation.target}"
             for relation in self.private_relations
         ) or "  none yet"
-        return f"Topics: {topics}\n\nKnown arguments:\n{args}\n\nKnown relations:\n{rels}\n\nContribute a new argument. You MUST include at least one relation targeting a known argument label or topic."
+        if self.private_arguments:
+            example_target = next(reversed(self.private_arguments))
+            example_description = "Valid argument-to-argument Disclosure example"
+        else:
+            example_target = self.topics[0]
+            example_description = "Valid first Disclosure example"
+        example = {
+            "arguments": [{"label": "unique_argument_label", "text": "The argument text."}],
+            "relations": [{
+                "source": "unique_argument_label",
+                "target": example_target,
+                "kind": self._topic_relation_kind,
+            }],
+        }
+        return (
+            f"You are agent '{self.name}'. The turn order every round is "
+            f"{' → '.join(TURN_ORDER)}. Agents act sequentially. "
+            "The knowledge below already includes accepted disclosures from agents who acted before you.\n\n"
+            f"Topics (use these exact labels): {topics}\n\n"
+            f"Known arguments:\n{args}\n\n"
+            f"Known relations:\n{rels}\n\n"
+            "Return a Disclosure that contributes useful reasoning, or return an explicit Pass. "
+            "Every new argument must appear in arguments with a unique label. Relations point from "
+            "the reason toward the claim it affects. Every relation target must exactly match a topic, "
+            "a known argument label, or another new argument that eventually connects to a topic. "
+            "Use support for a supporting reason and attack for an opposing reason. When known arguments "
+            "exist, prefer responding directly to the most relevant existing argument. Target the topic "
+            "directly only when your argument does not naturally respond to an existing argument. The "
+            "relation kind describes the local effect on its target: you may attack an opposing argument "
+            "or support an aligned argument.\n\n"
+            f"{example_description}:\n{json.dumps(example, indent=2)}"
+        )
+
+
+    def _response_instructions(self) -> str:
+        return (
+            "Return exactly one JSON object with no markdown or extra text. "
+            "It must validate against this Disclosure-or-Pass schema:\n"
+            f"{_RESPONSE_SCHEMA}"
+        )
 
 
     def _initial_strength_prompt(self, argument) -> str:
@@ -94,8 +147,8 @@ def main() -> None:
         raise SystemExit("Set OPENAI_API_KEY in a .env file before running.")
 
     exchange = MTAX(
-        agents=[LLMAgent("pro", Autom8Agent(model="gpt-4o-mini", system_prompt=PRO_PROMPT), PRO_PROMPT),
-                LLMAgent("con", Autom8Agent(model="gpt-4o-mini", system_prompt=CON_PROMPT), CON_PROMPT)],
+        agents=[LLMAgent("agent-alien", Autom8Agent(model="gpt-4o-mini", system_prompt=PRO_PROMPT), PRO_PROMPT, "support"),
+                LLMAgent("agent-no-aliens", Autom8Agent(model="gpt-4o-mini", system_prompt=CON_PROMPT), CON_PROMPT, "attack")],
         topics=["aliens_exist"],
         config=ExchangeConfig(max_rounds=10),
     )
@@ -106,89 +159,9 @@ def main() -> None:
         ui.render()
 
 
+
+
+
+
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# ── HumanTerminalAgent ─────────────────────────────────────────────────────────
-# Drop-in replacement for an LLM — prompts a human in the terminal.
-# Usage: HumanTerminalAgent("human")
-
-class HumanTerminalAgent(MTAXAgent):
-    def __init__(self, name: str) -> None:
-        super().__init__(name)
-        self._pending_strengths: dict[str, float] = {}
-
-
-    def contribute(self, violation_feedback=None) -> Disclosure | None:
-        if violation_feedback:
-            print(f"\nRejected: {violation_feedback}")
-        print(f"\nTopics: {', '.join(self.topics)}")
-        for argument in self.private_arguments.values():
-            print(f"  {argument.label}: {argument.text}")
-        label = input("\nlabel (blank to pass): ").strip()
-        if not label:
-            return None
-        text   = input("text: ").strip()
-        target = input("relation target [aliens_exist]: ").strip() or "aliens_exist"
-        kind   = self._prompt_kind()
-        self._pending_strengths[label] = self._prompt_strength()
-        return Disclosure(
-            arguments=[Argument(label=label, text=text)],
-            relations=[Relation(source=label, target=target, kind=kind)],
-        )
-
-
-    def rate(self, argument) -> float:
-        return self._pending_strengths.pop(argument.label, 0.5)
-
-
-    def _prompt_kind(self) -> str:
-        while True:
-            kind = input("kind [attack/support]: ").strip().lower()
-            if kind in {"attack", "support"}:
-                return kind
-
-
-    def _prompt_strength(self) -> float:
-        while True:
-            try:
-                strength = float(input("initial strength [0.0-1.0]: ").strip())
-                if 0.0 <= strength <= 1.0:
-                    return strength
-            except ValueError:
-                pass

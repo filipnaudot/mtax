@@ -16,7 +16,5 @@ class ExchangeConfig:
     max_rounds: int = 100
     max_retries: int = 3
     stop_when_resolved: bool = True
-    allow_duplicate_relations: bool = False
-    update_private_qbafs: bool = True
     semantics: str = QBAFSemantics.DFQUAD
     resolution_threshold: float = 0.5
