@@ -21,3 +21,8 @@ class Argument(ImmutableModel):
 class Disclosure(ImmutableModel):
     arguments: tuple[Argument, ...] = ()
     relations: tuple[Relation, ...] = Field(min_length=1)
+
+
+class Pass(ImmutableModel):
+    action: Literal["pass"]
+    reason: str | None = None
