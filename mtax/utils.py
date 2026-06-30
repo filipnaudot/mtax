@@ -30,17 +30,19 @@ class MTAXTerminalUI:
 
     def _render_relations(self) -> None:
         print("\nPublic relations")
-        if not self.exchange.state.public_relations:
+        bm_relations = self.exchange.state.public_bm.relations
+        if not bm_relations:
             print("  none")
             return
-        for relation in sorted(self.exchange.state.public_relations, key=self._relation_key):
+        for source, target, kind in sorted(bm_relations, key=lambda r: (r[1], r[2], r[0])):
+            relation = Relation(source=source, target=target, kind=kind)
             contributor = self.exchange.contributor_mapping(relation)
-            source = f"{relation.source} {relation.kind} {relation.target}"
+            display = f"{source} {kind} {target}"
             if contributor is None:
-                print(f"  {source}")
+                print(f"  {display}")
             else:
                 agent, round_index = contributor
-                print(f"  {source}  [{agent}, round {round_index}]")
+                print(f"  {display}  [{agent}, round {round_index}]")
 
     def _render_trace_tail(self, size: int = 4) -> None:
         print("\nLatest contributions")
@@ -51,11 +53,6 @@ class MTAXTerminalUI:
         for contribution in trace:
             print(self._format_contribution(contribution))
 
-
-    def _relation_key(self, relation: Relation) -> tuple[str, str, str]:
-        return relation.target, relation.kind, relation.source
-
-
     def _format_contribution(self, contribution: Contribution) -> str:
-        return (f"  r{contribution.round_index} {contribution.agent}: "
-                f"{contribution.label} - {contribution.argument}")
+        arguments = ", ".join(argument.label for argument in contribution.disclosure.arguments)
+        return f"  r{contribution.round_index} {contribution.agent}: {arguments or 'relations only'}"

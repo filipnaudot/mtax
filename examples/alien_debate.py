@@ -1,48 +1,108 @@
+"""
+Alien debate.
+Two LLMs argue whether aliens exist.
+
+Minimal example showing how to wire up an MTAX exchange:
+  - subclass MTAXAgent and implement contribute() and rate()
+  - iterate and render
+"""
 from __future__ import annotations
+import json
 import os
+import re
 
 from dotenv import load_dotenv
 from autom8 import Agent as Autom8Agent
 
-from mtax import Agent, Contribution, ExchangeConfig, MTAX, Relation
-from mtax.prompts import (
-    ANTI_ALIEN_SYSTEM_PROMPT,
-    PRO_ALIEN_SYSTEM_PROMPT,
-    build_alien_contribution_prompt,
-    build_alien_initial_strength_prompt,
-)
+from mtax import MTAXAgent, ExchangeConfig, MTAX
+from mtax.schema import Argument, Disclosure, Relation
 from mtax.utils import MTAXTerminalUI
 
 
 
 
+
+# ── System prompts ─────────────────────────────────────────────────────────────
+
+_FORMAT = "\nReturn exactly one JSON object — no markdown, no extra text:\n" + json.dumps(Disclosure.model_json_schema(), indent=2)
+
+PRO_PROMPT = "You believe aliens probably exist. Argue for aliens_exist." + _FORMAT
+CON_PROMPT = "You believe aliens probably do not exist. Argue against aliens_exist." + _FORMAT
+
+
+
+
+
+
+
+# ── Agent ──────────────────────────────────────────────────────────────────────
+
+class LLMAgent(MTAXAgent):
+    def __init__(self, name: str, model, stance_prompt: str) -> None:
+        super().__init__(name)
+        self._model = model
+        self._stance_prompt = stance_prompt
+
+
+    def contribute(self, violation_feedback=None) -> Disclosure | None:
+        message = self._contribution_prompt()
+        if violation_feedback:
+            message += f"\n\nYour previous relation was rejected: {violation_feedback}\nPlease try again."
+        output = self._model.invoke(message=message, instructions=self._stance_prompt)
+        if isinstance(output, Disclosure):
+            return output
+        try:
+            match = re.search(r"```(?:json)?\s*(.*?)\s*```", output, re.DOTALL)
+            return Disclosure.model_validate_json(match.group(1) if match else output)
+        except Exception:
+            return None
+
+
+    def rate(self, argument) -> float:
+        output = self._model.invoke(message=self._initial_strength_prompt(argument), instructions=self._stance_prompt)
+        try:
+            return max(0.0, min(1.0, float(output)))
+        except (ValueError, TypeError):
+            return 0.5
+
+
+    #### Prompts
+    def _contribution_prompt(self) -> str:
+        topics = ", ".join(self.topics)
+        args = "\n".join(f"  {a.label}: {a.text}" for a in self.private_arguments.values()) or "  none yet"
+        rels = "\n".join(
+            f"  {relation.source} {relation.kind} {relation.target}"
+            for relation in self.private_relations
+        ) or "  none yet"
+        return f"Topics: {topics}\n\nKnown arguments:\n{args}\n\nKnown relations:\n{rels}\n\nContribute a new argument. You MUST include at least one relation targeting a known argument label or topic."
+
+
+    def _initial_strength_prompt(self, argument) -> str:
+        return f"Rate how convincing this is. Return only a number from 0.0 to 1.0.\n{argument.label}: {argument.text}"
+
+
+
+
+
+
+
+# ── Main ───────────────────────────────────────────────────────────────────────
+
 def main() -> None:
     load_dotenv()
-
     if "OPENAI_API_KEY" not in os.environ:
-        raise SystemExit("Set OPENAI_API_KEY in a .env file before running this example.")
+        raise SystemExit("Set OPENAI_API_KEY in a .env file before running.")
 
-    model_name = os.environ.get("MTAX_MODEL", "gpt-4o-mini")
-    pro_agent = Agent(name="pro",
-                      model=Autom8Agent(model=model_name, system_prompt=PRO_ALIEN_SYSTEM_PROMPT),
-                      contribution_prompt=build_alien_contribution_prompt,
-                      initial_strength_prompt=build_alien_initial_strength_prompt,
-                      instructions=PRO_ALIEN_SYSTEM_PROMPT)
-    con_agent = Agent(name="con",
-                      model=Autom8Agent(model=model_name, system_prompt=ANTI_ALIEN_SYSTEM_PROMPT),
-                      contribution_prompt=build_alien_contribution_prompt,
-                      initial_strength_prompt=build_alien_initial_strength_prompt,
-                      instructions=ANTI_ALIEN_SYSTEM_PROMPT)
-    # human = Agent(name="human", model=HumanTerminalModel())
+    exchange = MTAX(
+        agents=[LLMAgent("pro", Autom8Agent(model="gpt-4o-mini", system_prompt=PRO_PROMPT), PRO_PROMPT),
+                LLMAgent("con", Autom8Agent(model="gpt-4o-mini", system_prompt=CON_PROMPT), CON_PROMPT)],
+        topics=["aliens_exist"],
+        config=ExchangeConfig(max_rounds=10),
+    )
 
-    exchange = MTAX(agents=[pro_agent, con_agent],
-                    topics=["aliens_exist"],
-                    config=ExchangeConfig(max_rounds=10))
     ui = MTAXTerminalUI(exchange)
     ui.render()
-
-    while exchange.state.round_index < exchange.config.max_rounds:
-        exchange.step()
+    for state in exchange:
         ui.render()
 
 
@@ -55,54 +115,80 @@ if __name__ == "__main__":
 
 
 
-class HumanTerminalModel:
-    def __init__(self) -> None:
-        self.strengths: dict[str, float] = {}
 
-    def step(self, state) -> Contribution | None:
-        print("\nHuman contribution")
-        print(f"Topics: {', '.join(state.topics)}")
-        if state.public_arguments:
-            print("Public arguments:")
-            for argument in state.public_arguments.values():
-                print(f"- {argument.label}: {argument.text}")
 
-        label = input("label, blank to skip: ").strip()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# ── HumanTerminalAgent ─────────────────────────────────────────────────────────
+# Drop-in replacement for an LLM — prompts a human in the terminal.
+# Usage: HumanTerminalAgent("human")
+
+class HumanTerminalAgent(MTAXAgent):
+    def __init__(self, name: str) -> None:
+        super().__init__(name)
+        self._pending_strengths: dict[str, float] = {}
+
+
+    def contribute(self, violation_feedback=None) -> Disclosure | None:
+        if violation_feedback:
+            print(f"\nRejected: {violation_feedback}")
+        print(f"\nTopics: {', '.join(self.topics)}")
+        for argument in self.private_arguments.values():
+            print(f"  {argument.label}: {argument.text}")
+        label = input("\nlabel (blank to pass): ").strip()
         if not label:
             return None
-
-        argument = input("argument: ").strip()
-        source = input(f"relation source [{label}]: ").strip() or label
+        text   = input("text: ").strip()
         target = input("relation target [aliens_exist]: ").strip() or "aliens_exist"
-        kind = self._prompt_kind()
-        strength = self._prompt_strength()
-        self.strengths[label] = strength
-
-        return Contribution(
-            label=label,
-            argument=argument,
-            relations=(Relation(source=source, target=target, kind=kind),),
+        kind   = self._prompt_kind()
+        self._pending_strengths[label] = self._prompt_strength()
+        return Disclosure(
+            arguments=[Argument(label=label, text=text)],
+            relations=[Relation(source=label, target=target, kind=kind)],
         )
 
-    def assign_initial_strength(self, argument, state) -> float:
-        return self.strengths.get(argument.label, 0.5)
+
+    def rate(self, argument) -> float:
+        return self._pending_strengths.pop(argument.label, 0.5)
+
 
     def _prompt_kind(self) -> str:
         while True:
-            kind = input("relation kind [support/attack]: ").strip().lower()
-            if kind in {"support", "attack"}:
+            kind = input("kind [attack/support]: ").strip().lower()
+            if kind in {"attack", "support"}:
                 return kind
-            print("Please enter support or attack.")
+
 
     def _prompt_strength(self) -> float:
         while True:
-            raw = input("initial strength [0.0-1.0]: ").strip()
             try:
-                strength = float(raw)
+                strength = float(input("initial strength [0.0-1.0]: ").strip())
+                if 0.0 <= strength <= 1.0:
+                    return strength
             except ValueError:
-                print("Please enter a number from 0.0 to 1.0.")
-                continue
-            if 0.0 <= strength <= 1.0:
-                return strength
-            print("Please enter a number from 0.0 to 1.0.")
-
+                pass

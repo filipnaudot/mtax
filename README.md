@@ -7,32 +7,51 @@
 </div>
 <br/>
 
+
+
 # mtax
 Multi-topic argumentative exchange
 
-## Intended Usage
+
+
+## Usage
 
 ```python
-from mtax import Agent, ExchangeConfig, MTAX
+from mtax import MTAXAgent, ExchangeConfig, MTAX
 
-
-machine = Agent(name="machine", model=LLM(...))
-human = Agent(name="human", model=HumanInterface(...))
+class MyAgent(MTAXAgent):
+    def contribute(self, violation_feedback=None):
+        ...
 
 exchange = MTAX(
-    agents=[machine, human],
+    agents=[MyAgent("machine"), MyAgent("human")],
     topics=["recommend_x", "recommend_y", "recommend_z"],
     config=ExchangeConfig(max_rounds=10),
 )
-exchange.run()
+
+for state in exchange:
+    ...
+
 result = exchange.result()
 ```
 
-## TODO
 
-- [ ] Bipolar Multitree structure (enforce topic-rootedness, acyclicity, and single-path)
-- [ ] QBAF semantics (DF-QuAD)
-- [ ] Resolution detection (stance and top-r)
+
+
+## TODO for MTAX Framework
+
+- [x] Argument, relation, and disclosure schemas
+- [x] Bipolar Multitree structure and guardrails
+- [x] Atomic multi-relation publication
+- [x] Abstract agent interface
+- [ ] QBAF-Py integration and semantics
+- [ ] Top-r (and stance) resolution
+- [ ] Resolution-based stopping
+- [ ] Generic/abstract turn-taking class TurnTaking
+- [ ] Implement simple fixed order turn-taking function that implements TurnTaking
 - [ ] Disclosure-effect measures
-- [ ] Agent strategies
-- [ ] Turn-taking function
+
+
+## TODO for MTAX Usage
+
+- [ ] Optional agent strategy utilities

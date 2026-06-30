@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from collections import deque
+from collections.abc import Iterable
 
+from mtax.schema import Relation
 
 
 
@@ -40,6 +43,22 @@ class BipolarMultitree:
         self._incoming.setdefault(source, set())
         self._incoming.setdefault(target, set()).add(source)
         self._relations.add((source, target, kind))
+
+
+    def add_relations(self, relations: Iterable[Relation]) -> None:
+        pending = list(relations)
+        candidate = deepcopy(self)
+        while pending:
+            for relation in pending:
+                if relation.target in candidate.arguments:
+                    candidate.add_relation(relation.source, relation.target, relation.kind)
+                    pending.remove(relation)
+                    break
+            else:
+                raise ValueError("Relations contain unknown targets, a cycle, or arguments not connected to a topic.")
+        self._outgoing = candidate._outgoing
+        self._incoming = candidate._incoming
+        self._relations = candidate._relations
 
 
     def _reaches(self, start: str, destination: str) -> bool:

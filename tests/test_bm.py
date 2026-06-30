@@ -1,5 +1,6 @@
 import pytest
 from mtax.bm import BipolarMultitree
+from mtax.schema import Relation
 
 
 def bm_with_two_topics() -> BipolarMultitree:
@@ -53,7 +54,7 @@ def test_relation_from_topic_is_rejected() -> None:
 ####
 # topic relevance
 ####
-def path_to_topic_does_not_exist() -> None:
+def test_argument_with_no_path_to_topic_is_rejected() -> None:
     bm = bm_with_two_topics()
     bm.add_relation("x", "a1", "support")
     bm.add_relation("y", "x", "attack")
@@ -114,3 +115,27 @@ def test_new_argument_connecting_to_two_topic_subtrees_is_valid() -> None:
     bm.add_relation("z", "x", "support")
     bm.add_relation("z", "y", "attack")
     assert "z" in bm.arguments
+
+
+def test_add_relations_accepts_arbitrary_order() -> None:
+    bm = bm_with_two_topics()
+    bm.add_relations([
+        Relation(source="x", target="y", kind="attack"),
+        Relation(source="y", target="a1", kind="support"),
+    ])
+
+    assert ("x", "y", "attack") in bm.relations
+    assert ("y", "a1", "support") in bm.relations
+
+
+def test_add_relations_is_atomic() -> None:
+    bm = bm_with_two_topics()
+
+    with pytest.raises(ValueError):
+        bm.add_relations([
+            Relation(source="x", target="a1", kind="support"),
+            Relation(source="y", target="unknown", kind="attack"),
+        ])
+
+    assert bm.arguments == {"a1", "a2"}
+    assert bm.relations == set()

@@ -1,9 +1,10 @@
 def test_public_imports() -> None:
     from mtax import (
-        Agent,
+        MTAXAgent,
         Argument,
         Contribution,
         DialogueState,
+        Disclosure,
         ExchangeConfig,
         ExchangeResult,
         MTAX,
@@ -12,10 +13,11 @@ def test_public_imports() -> None:
         Relation,
     )
 
-    assert Agent
+    assert MTAXAgent
     assert Argument
     assert Contribution
     assert DialogueState
+    assert Disclosure
     assert ExchangeConfig
     assert ExchangeResult
     assert MTAX

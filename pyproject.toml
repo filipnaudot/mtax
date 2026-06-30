@@ -10,6 +10,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "autom8 @ git+https://github.com/cleairlabs/autom8.git",
+    "pydantic>=2.0",
     "QBAF-Py @ git+https://github.com/TimKam/Quantitative-Bipolar-Argumentation.git",
 ]
 
