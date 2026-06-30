@@ -45,7 +45,8 @@ result = exchange.result()
 - [x] Atomic multi-relation publication
 - [x] Abstract agent interface
 - [x] QBAF-Py integration and semantics
-- [ ] Top-r (and stance) resolution
+- [x] Top-r (and stance) resolution
+- [ ] Integrate resolution check in MTAX
 - [ ] Resolution-based stopping
 - [ ] Generic/abstract turn-taking class TurnTaking
 - [ ] Implement simple fixed order turn-taking function that implements TurnTaking
