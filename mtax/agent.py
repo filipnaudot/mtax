@@ -22,11 +22,13 @@ class MTAXAgent:
         self.private_relations: list[Relation] = private_relations if private_relations is not None else []
         self._private_qbaf: QBAFramework | None = None
 
+
     @property
     def private_qbaf(self) -> QBAFramework:
         if self._private_qbaf is None:
             raise RuntimeError("Agent has not been initialized by an MTAX exchange.")
         return self._private_qbaf
+
 
     def initialize(self, topics: list[str], default_semantics: str) -> None:
         self.topics = tuple(topics)
@@ -52,11 +54,14 @@ class MTAXAgent:
             semantics=self.semantics,
         )
 
+
     def contribute(self, violation_feedback: str | None = None) -> Disclosure | Pass | None:
         raise NotImplementedError
 
+
     def rate(self, argument: Argument) -> float:
         return 0.5
+
 
     def ingest(self, disclosure: Disclosure) -> None:
         for argument in disclosure.arguments:
