@@ -58,8 +58,8 @@ result = exchange.result()
 - [x] Top-r (and stance) resolution
 - [x] Integrate resolution check in MTAX
 - [x] Resolution-based stopping
-- [ ] Generic/abstract turn-taking class TurnTaking
-- [ ] Implement simple fixed order turn-taking function that implements TurnTaking
+- [x] Generic/abstract turn-taking class TurnTaking
+- [x] Implement simple fixed order turn-taking function that implements TurnTaking
 - [ ] Disclosure-effect measures
 
 
