@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import Literal
 
 
 @dataclass(frozen=True)
@@ -16,5 +17,7 @@ class ExchangeConfig:
     max_rounds: int = 100
     max_retries: int = 3
     stop_when_resolved: bool = True
+    resolution: Literal["stance", "top_r"] = "stance"
+    top_r: int = 2
     semantics: str = QBAFSemantics.DFQUAD
     resolution_threshold: float = 0.5

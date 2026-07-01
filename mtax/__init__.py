@@ -4,7 +4,7 @@ from mtax.config import ExchangeConfig, QBAFSemantics
 from mtax.mtax import AgentStatus, Contribution, DialogueState, ExchangeResult, InvalidAgentResponse, MTAX, PublishError
 from mtax.agent import MTAXAgent
 from mtax.resolution import Resolution
-from mtax.utils import MTAXTerminalUI
+from mtax.ui import MTAXTerminalUI
 
 __all__ = [
     "MTAXAgent",

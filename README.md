@@ -36,6 +36,9 @@ result = exchange.result()
 ```
 
 
+## TODO for Repo
+
+- [ ] CI that runs tests
 
 
 ## TODO for MTAX Framework
@@ -46,7 +49,7 @@ result = exchange.result()
 - [x] Abstract agent interface
 - [x] QBAF-Py integration and semantics
 - [x] Top-r (and stance) resolution
-- [ ] Integrate resolution check in MTAX
+- [x] Integrate resolution check in MTAX
 - [ ] Resolution-based stopping
 - [ ] Generic/abstract turn-taking class TurnTaking
 - [ ] Implement simple fixed order turn-taking function that implements TurnTaking

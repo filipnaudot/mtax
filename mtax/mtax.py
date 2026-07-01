@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Literal
 
 from mtax.bm import BipolarMultitree
 from mtax.config import ExchangeConfig
+from mtax.resolution import Resolution
 from mtax.schema import Argument, Disclosure, Pass, Relation
 
 if TYPE_CHECKING:
@@ -82,13 +83,18 @@ class MTAX:
         self.agents = agents
         self.topics = topics
         self.config = config or ExchangeConfig()
+        if self.config.resolution == "top_r" and (len(self.topics) < 2 or not 1 <= self.config.top_r <= len(self.topics)):
+            raise ValueError("top_r requires at least 2 topics and must not exceed the number of topics")
         self._state = DialogueState(topics=topics)
         for agent in self.agents:
             agent.initialize(topics, self.config.semantics)
+        self.resolution = Resolution(self.agents, self.topics)
 
 
     def __iter__(self):
         while self._state.round_index < self.config.max_rounds:
+            if (self._state.round_index > 0) and self.config.stop_when_resolved and self.is_resolved():
+                break
             yield self.step()
 
 
@@ -218,8 +224,16 @@ class MTAX:
         return None
 
 
+    def is_resolved(self) -> bool:
+        if self.config.resolution == "top_r":
+            return self.resolution.top_r(self.config.top_r)
+        return self.resolution.stance(self.config.resolution_threshold, self.config.resolution_threshold)
+
+
     def result(self) -> ExchangeResult:
         resolved = False
+        if (self._state.round_index > 0):
+            resolved = self.is_resolved()
         return ExchangeResult(
             topics=list(self.topics),
             resolved=resolved,

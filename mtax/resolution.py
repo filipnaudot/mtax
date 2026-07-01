@@ -10,8 +10,8 @@ class Resolution:
 
 
     def top_r(self, r: int) -> bool:
-        if not 1 <= r <= len(self.topics):
-            raise ValueError("r must be between 1 and the number of topics")
+        if len(self.topics) < 2 or not 1 <= r <= len(self.topics):
+            raise ValueError("top_r requires at least 2 topics and must not exceed the number of topics")
         if not self.agents:
             return False
         rankings = [self._top_r(agent, r) for agent in self.agents]

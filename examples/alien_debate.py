@@ -27,8 +27,16 @@ from mtax.utils import MTAXTerminalUI
 _RESPONSE_ADAPTER = TypeAdapter(Disclosure | Pass)
 _RESPONSE_SCHEMA = json.dumps(_RESPONSE_ADAPTER.json_schema(), indent=2)
 
-PRO_PROMPT = "You believe aliens probably exist. Argue for aliens_exist."
-CON_PROMPT = "You believe aliens probably do not exist. Argue against aliens_exist."
+PRO_PROMPT = (
+    "You initially believe aliens probably exist, followed by uncertainty, then non-existence. "
+    "Debate in good faith, evaluate every argument fairly, and revise your view when the evidence "
+    "warrants it. Work with the other agent toward a shared evidence-based conclusion."
+)
+CON_PROMPT = (
+    "You initially believe aliens probably do not exist, followed by uncertainty, then existence. "
+    "Debate in good faith, evaluate every argument fairly, and revise your view when the evidence "
+    "warrants it. Work with the other agent toward a shared evidence-based conclusion."
+)
 TURN_ORDER = ("agent-alien", "agent-no-aliens")
 
 
@@ -149,7 +157,7 @@ def main() -> None:
     exchange = MTAX(
         agents=[LLMAgent("agent-alien", Autom8Agent(model="gpt-4o-mini", system_prompt=PRO_PROMPT), PRO_PROMPT, "support"),
                 LLMAgent("agent-no-aliens", Autom8Agent(model="gpt-4o-mini", system_prompt=CON_PROMPT), CON_PROMPT, "attack")],
-        topics=["aliens_exist"],
+        topics=["aliens_exist", "aliens_do_not_exist", "aliens_may_exist"],
         config=ExchangeConfig(max_rounds=10),
     )
 
