@@ -18,8 +18,6 @@ Each agent must decide:
 1. How to evaluate the strength of arguments it receives.
 2. Which private arguments and relations to disclose publicly during the debate.
 
-MTAX is also designed to support optional QBAF-based disclosure strategies.
-These strategies can guide what an agent discloses using its argument evaluations, without depending directly on the agent's underlying reasoning process.
 
 
 

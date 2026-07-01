@@ -7,6 +7,7 @@ from mtax.bm import BipolarMultitree
 from mtax.config import ExchangeConfig
 from mtax.resolution import Resolution
 from mtax.schema import Argument, Disclosure, Pass, Relation
+from mtax.turn_taking import BasicTurnTaking, TurnTaking
 
 if TYPE_CHECKING:
     from mtax.agent import MTAXAgent
@@ -79,10 +80,15 @@ class ExchangeResult:
 
 
 class MTAX:
-    def __init__(self, agents: list[MTAXAgent], topics: list[str], config: ExchangeConfig | None = None) -> None:
+    def __init__(self,
+                 agents: list[MTAXAgent],
+                 topics: list[str],
+                 config: ExchangeConfig | None = None,
+                 turn_taking: TurnTaking | None = None) -> None:
         self.agents = agents
         self.topics = topics
         self.config = config or ExchangeConfig()
+        self.turn_taking = turn_taking or BasicTurnTaking()
         if self.config.resolution == "top_r" and (len(self.topics) < 2 or not 1 <= self.config.top_r <= len(self.topics)):
             raise ValueError("top_r requires at least 2 topics and must not exceed the number of topics")
         self._state = DialogueState(topics=topics)
@@ -108,7 +114,7 @@ class MTAX:
             return self._state
         self._state.publish_errors = []
         self._state.agent_statuses = []
-        for agent in self.agents:
+        for agent in self.turn_taking(self.agents):
             feedback = None
             errors: list[PublishError] = []
             invalid_response = None
