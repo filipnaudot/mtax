@@ -126,24 +126,18 @@ class MTAX:
                     feedback = invalid_response
                     continue
                 if disclosure is None:
-                    invalid_response = (
-                        "No structured response was returned. Return a Disclosure or an explicit Pass."
-                    )
+                    invalid_response = ("No structured response was returned. Return a Disclosure or an explicit Pass.")
                     feedback = invalid_response
                     continue
                 if isinstance(disclosure, Pass):
-                    self._state.agent_statuses.append(
-                        AgentStatus(agent.name, "passed", disclosure.reason, attempt)
-                    )
+                    self._state.agent_statuses.append(AgentStatus(agent.name, "passed", disclosure.reason, attempt))
                     break
                 contribution = Contribution(disclosure=disclosure, agent=agent.name, round_index=self._state.round_index,)
                 errors = self._publish(contribution)
                 if not errors:
                     self._state.trace.append(contribution)
                     labels = ", ".join(argument.label for argument in disclosure.arguments)
-                    self._state.agent_statuses.append(
-                        AgentStatus(agent.name, "published", labels or "relations only", attempt)
-                    )
+                    self._state.agent_statuses.append(AgentStatus(agent.name, "published", labels or "relations only", attempt))
                     for current_agent in self.agents:
                         current_agent.ingest(disclosure)
                     break
@@ -152,24 +146,12 @@ class MTAX:
                 if errors:
                     self._record_rejection(agent.name, errors, self.config.max_retries + 1)
                 else:
-                    self._state.agent_statuses.append(
-                        AgentStatus(
-                            agent.name,
-                            "no_response",
-                            invalid_response,
-                            self.config.max_retries + 1,
-                        )
-                    )
+                    self._state.agent_statuses.append(AgentStatus(agent.name, "no_response", invalid_response, self.config.max_retries + 1))
         self._state.round_index += 1
         return self._state
 
 
-    def _record_rejection(
-        self,
-        agent: str,
-        errors: list[PublishError],
-        attempts: int,
-    ) -> None:
+    def _record_rejection(self, agent: str, errors: list[PublishError], attempts: int) -> None:
         self._state.publish_errors.extend(errors)
         reason = errors[0].reason if errors else "Disclosure was rejected."
         self._state.agent_statuses.append(AgentStatus(agent, "rejected", reason, attempts))
