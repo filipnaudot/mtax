@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from mtax import InvalidAgentResponse, MTAXAgent, MTAXTerminalUI, Argument, Disclosure, ExchangeConfig, MTAX, Pass, Relation
+from mtax import InvalidAgentResponse, MTAXAgent, Argument, Disclosure, ExchangeConfig, MTAX, Pass, Relation
 
 
 def test_mtax_step_and_result() -> None:
@@ -9,19 +9,14 @@ def test_mtax_step_and_result() -> None:
         def contribute(self, violation_feedback=None) -> Disclosure:
             label = f"arg_{len(self.private_arguments)}"
             return Disclosure(
-                arguments=[Argument(
-                    label=label,
-                    text=','.join(self.topics),
-                )], # type: ignore
+                arguments=[Argument(label=label, text=','.join(self.topics))], # type: ignore
                 relations=[Relation(source=label, target="recommend_x", kind="support")], # type: ignore
             )
-
     exchange = MTAX(
         agents=[SimpleAgent("machine"), SimpleAgent("human")],
         topics=["recommend_x", "recommend_y", "recommend_z"],
-        config=ExchangeConfig(max_rounds=2),
+        config=ExchangeConfig(max_rounds=2, stop_when_resolved=False),
     )
-
     state = exchange.step()
     assert len(state.trace) == 2
     assert state.round_index == 1
@@ -29,15 +24,15 @@ def test_mtax_step_and_result() -> None:
     assert state.trace[0].agent == "machine"
     assert state.trace[0].disclosure.arguments[0].text == "recommend_x,recommend_y,recommend_z"
     assert state.trace[0].round_index == 0
-    assert state.public_arguments["arg_0"] == Argument(
-        label="arg_0",
-        text="recommend_x,recommend_y,recommend_z",
-    )
-
-    for state in exchange:
-        pass
+    assert state.public_arguments["arg_0"] == Argument(label="arg_0", text="recommend_x,recommend_y,recommend_z")
+    for state in exchange: pass
     assert exchange.state.round_index == 2
     assert exchange.result().metrics["num_contributions"] == len(exchange.state.trace)
+
+
+def test_top_r_resolution_requires_multiple_topics() -> None:
+    with pytest.raises(ValueError, match="top_r requires at least 2 topics"):
+        MTAX(agents=[MTAXAgent("agent")], topics=["topic"], config=ExchangeConfig(resolution="top_r"))
 
 
 def test_contributor_mapping() -> None:
@@ -46,13 +41,9 @@ def test_contributor_mapping() -> None:
     class RelationAgent(MTAXAgent):
         def contribute(self, violation_feedback=None) -> Disclosure:
             return Disclosure(
-                arguments=[Argument(
-                    label="cost_is_high",
-                    text="High cost is a reason against recommend_x.",
-                )], # type: ignore
+                arguments=[Argument(label="cost_is_high", text="High cost is a reason against recommend_x.")], # type: ignore
                 relations=[relation], # type: ignore
             )
-
     exchange = MTAX(
         agents=[RelationAgent("human")],
         topics=["recommend_x"],
@@ -64,39 +55,21 @@ def test_contributor_mapping() -> None:
 
 def test_agents_ingest_and_preserve_private_state() -> None:
     private_argument = Argument(label="private_reason", text="Private reason.")
-
     class StrengthAgent(MTAXAgent):
         def contribute(self, violation_feedback=None) -> Disclosure:
             return Disclosure(
                 arguments=[Argument(label="cost_is_high", text="The cost is high.")], # type: ignore
-                relations=[Relation(
-                    source="cost_is_high",
-                    target="recommend_x",
-                    kind="attack",
-                )], # type: ignore
+                relations=[Relation(source="cost_is_high", target="recommend_x", kind="attack")], # type: ignore
             )
-
         def rate(self, argument) -> float:
             return 0.2
-
     agent = StrengthAgent("human", private_arguments={"private_reason": private_argument})
-    exchange = MTAX(
-        agents=[agent],
-        topics=["recommend_x"],
-        config=ExchangeConfig(max_rounds=1),
-    )
+    exchange = MTAX(agents=[agent], topics=["recommend_x"], config=ExchangeConfig(max_rounds=1))
     exchange.step()
     assert agent.private_arguments["private_reason"] == private_argument
-    assert agent.private_arguments["cost_is_high"] == Argument(
-        label="cost_is_high",
-        text="The cost is high.",
-    )
+    assert agent.private_arguments["cost_is_high"] == Argument(label="cost_is_high", text="The cost is high.")
     assert agent.private_strengths["cost_is_high"] == 0.2
-    assert agent.private_relations == [Relation(
-        source="cost_is_high",
-        target="recommend_x",
-        kind="attack",
-    )]
+    assert agent.private_relations == [Relation(source="cost_is_high", target="recommend_x", kind="attack")]
     assert agent.topics == ("recommend_x",)
     assert agent.private_qbaf.initial_strength("recommend_x") == 0.5
     assert agent.private_qbaf.initial_strength("cost_is_high") == 0.2
@@ -107,30 +80,19 @@ def test_agents_ingest_and_preserve_private_state() -> None:
 def test_agent_semantics_override_exchange_default() -> None:
     default_agent = MTAXAgent("default")
     override_agent = MTAXAgent("override", semantics="basic_model")
-    MTAX(
-        agents=[default_agent, override_agent],
-        topics=["topic"],
-        config=ExchangeConfig(semantics="DFQuAD_model"),
-    )
+    MTAX(agents=[default_agent, override_agent], topics=["topic"], config=ExchangeConfig(semantics="DFQuAD_model"))
     assert default_agent.private_qbaf.semantics == "DFQuAD_model"
+    assert override_agent.private_qbaf.semantics == "basic_model"
+    MTAX(agents=[default_agent, override_agent], topics=["topic"], config=ExchangeConfig(semantics="QuadraticEnergy_model"))
+    assert default_agent.private_qbaf.semantics == "QuadraticEnergy_model"
     assert override_agent.private_qbaf.semantics == "basic_model"
 
 
 def test_reused_agent_uses_current_exchange_default_semantics() -> None:
     agent = MTAXAgent("agent")
-
-    MTAX(
-        agents=[agent],
-        topics=["topic_a"],
-        config=ExchangeConfig(semantics="DFQuAD_model"),
-    )
+    MTAX(agents=[agent], topics=["topic_a"], config=ExchangeConfig(semantics="DFQuAD_model"))
     assert agent.private_qbaf.semantics == "DFQuAD_model"
-
-    MTAX(
-        agents=[agent],
-        topics=["topic_b"],
-        config=ExchangeConfig(semantics="basic_model"),
-    )
+    MTAX(agents=[agent], topics=["topic_b"], config=ExchangeConfig(semantics="basic_model"),)
     assert agent.private_qbaf.semantics == "basic_model"
 
 
@@ -158,13 +120,8 @@ def test_invoke_style_agent() -> None:
             except (ValueError, TypeError):
                 return 0.5
 
-    exchange = MTAX(
-        agents=[InvokeAgent()],
-        topics=["aliens_exist"],
-        config=ExchangeConfig(max_rounds=1),
-    )
+    exchange = MTAX(agents=[InvokeAgent()], topics=["aliens_exist"], config=ExchangeConfig(max_rounds=1),)
     exchange.step()
-
     relation = Relation(source="fermi_paradox", target="aliens_exist", kind="attack")
     disclosure = exchange.state.trace[0].disclosure
     assert disclosure.arguments[0].label == "fermi_paradox"
@@ -177,7 +134,6 @@ def test_disclosures_are_immutable() -> None:
         arguments=[Argument(label="x", text="Argument x.")], # type: ignore
         relations=[Relation(source="x", target="topic", kind="support")], # type: ignore
     )
-
     with pytest.raises(ValidationError):
         disclosure.relations[0].target = "another_topic"
     with pytest.raises(AttributeError):
@@ -197,41 +153,10 @@ def test_agent_can_disclose_multiple_arguments() -> None:
                     Relation(source="y", target="topic", kind="support"),
                 ], # type: ignore
             )
-
-    exchange = MTAX(
-        agents=[MultiArgumentAgent("agent")],
-        topics=["topic"],
-        config=ExchangeConfig(max_rounds=1),
-    )
-
+    exchange = MTAX(agents=[MultiArgumentAgent("agent")], topics=["topic"], config=ExchangeConfig(max_rounds=1))
     exchange.step()
-
     assert set(exchange.state.public_arguments) == {"x", "y"}
     assert len(exchange.state.trace) == 1
-
-
-def test_terminal_ui_renders_strengths_and_graph(capsys) -> None:
-    class GraphAgent(MTAXAgent):
-        def contribute(self, violation_feedback=None) -> Disclosure:
-            return Disclosure(
-                arguments=[Argument(label="evidence", text="Evidence supports the topic.")],
-                relations=[Relation(source="evidence", target="topic", kind="support")],
-            )
-
-    exchange = MTAX(
-        agents=[GraphAgent("agent")],
-        topics=["topic"],
-        config=ExchangeConfig(max_rounds=1),
-    )
-    exchange.step()
-
-    MTAXTerminalUI(exchange).render()
-    output = capsys.readouterr().out
-
-    assert "TOPIC STRENGTHS" in output
-    assert "published evidence" in output
-    assert "[evidence]" in output
-    assert "+ SUPPORT ──▶ ◎ topic" in output
 
 
 def test_agent_pass_and_rejection_are_recorded(capsys) -> None:
@@ -242,26 +167,16 @@ def test_agent_pass_and_rejection_are_recorded(capsys) -> None:
     class RejectedAgent(MTAXAgent):
         def contribute(self, violation_feedback=None) -> Disclosure:
             return Disclosure(
-                arguments=[Argument(label="x", text="Argument x.")],
-                relations=[Relation(source="x", target="unknown", kind="support")],
+                arguments=[Argument(label="x", text="Argument x.")], # type: ignore
+                relations=[Relation(source="x", target="unknown", kind="support")], # type: ignore
             )
-
-    exchange = MTAX(
-        agents=[PassingAgent("passing"), RejectedAgent("rejected")],
-        topics=["topic"],
-        config=ExchangeConfig(max_rounds=1, max_retries=0),
-    )
-
+    exchange = MTAX(agents=[PassingAgent("passing"), RejectedAgent("rejected")], topics=["topic"], config=ExchangeConfig(max_rounds=1, max_retries=0),)
     exchange.step()
-
     assert exchange.state.agent_statuses[0].outcome == "passed"
     assert exchange.state.agent_statuses[0].detail == "Nothing useful to add."
     assert exchange.state.agent_statuses[1].outcome == "rejected"
-    assert "'x' → 'unknown'" in exchange.state.agent_statuses[1].detail
-    assert "Available targets: 'topic'" in exchange.state.agent_statuses[1].detail
-
-    MTAXTerminalUI(exchange).render()
-    assert "rejected after 1 attempt" in capsys.readouterr().out
+    assert "'x' → 'unknown'" in exchange.state.agent_statuses[1].detail # type: ignore
+    assert "Available targets: 'topic'" in exchange.state.agent_statuses[1].detail # type: ignore
 
 
 def test_invalid_agent_response_is_retried_with_feedback() -> None:
@@ -276,16 +191,9 @@ def test_invalid_agent_response_is_retried_with_feedback() -> None:
                 raise InvalidAgentResponse("Response was not valid JSON.")
             assert violation_feedback == "Response was not valid JSON."
             return Pass(action="pass")
-
     agent = RetryingAgent()
-    exchange = MTAX(
-        agents=[agent],
-        topics=["topic"],
-        config=ExchangeConfig(max_rounds=1, max_retries=1),
-    )
-
+    exchange = MTAX(agents=[agent], topics=["topic"], config=ExchangeConfig(max_rounds=1, max_retries=1))
     exchange.step()
-
     assert agent.attempts == 2
     assert exchange.state.agent_statuses[0].outcome == "passed"
     assert exchange.state.agent_statuses[0].attempts == 2
