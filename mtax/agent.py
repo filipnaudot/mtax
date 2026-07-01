@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from qbaf import QBAFramework
 
+from mtax.bm import BipolarMultitree
 from mtax.schema import Argument, Disclosure, Pass, Relation
 
 
@@ -61,6 +62,29 @@ class MTAXAgent:
 
     def rate(self, argument: Argument) -> float:
         return 0.5
+
+
+    def build_qbaf_from_bm(self, public_bm: BipolarMultitree) -> QBAFramework:
+        arguments = [
+            argument
+            for argument in self.private_qbaf.arguments
+            if argument in public_bm.arguments
+        ]
+        initial_strengths = [
+            self.private_qbaf.initial_strength(argument)
+            for argument in arguments
+        ]
+        attacks = [
+            (source, target)
+            for source, target in self.private_qbaf.attack_relations.relations
+            if (source, target, "attack") in public_bm.relations
+        ]
+        supports = [
+            (source, target)
+            for source, target in self.private_qbaf.support_relations.relations
+            if (source, target, "support") in public_bm.relations
+        ]
+        return QBAFramework(arguments, initial_strengths, attacks, supports, semantics=self.semantics)
 
 
     def ingest(self, disclosure: Disclosure) -> None:
