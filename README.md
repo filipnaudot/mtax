@@ -7,9 +7,6 @@
 </div>
 <br/>
 
-
-
-# mtax
 [![Pytest Tests](https://github.com/filipnaudot/mtax/actions/workflows/tests.yml/badge.svg)](https://github.com/filipnaudot/mtax/actions/workflows/tests.yml)
 
 Multi-topic argumentative exchange
