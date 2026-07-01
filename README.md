@@ -60,8 +60,7 @@ result = exchange.result()
 - [x] Resolution-based stopping
 - [x] Generic/abstract turn-taking class TurnTaking
 - [x] Implement simple fixed order turn-taking function that implements TurnTaking
-- [x] Core architecture for disclosure-effect measures
-- [ ] Implement agent that uses disclosure-effect measure
+- [ ] Disclosure-effect measures
 
 
 ## TODO for MTAX Usage
