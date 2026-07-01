@@ -10,6 +10,8 @@
 
 
 # mtax
+[![Pytest Tests](https://github.com/filipnaudot/mtax/actions/workflows/tests.yml/badge.svg)](https://github.com/filipnaudot/mtax/actions/workflows/tests.yml)
+
 Multi-topic argumentative exchange
 
 
@@ -38,7 +40,7 @@ result = exchange.result()
 
 ## TODO for Repo
 
-- [ ] CI that runs tests
+- [x] CI that runs tests
 
 
 ## TODO for MTAX Framework
