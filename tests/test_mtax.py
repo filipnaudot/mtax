@@ -77,6 +77,24 @@ def test_agents_ingest_and_preserve_private_state() -> None:
     assert agent.private_qbaf.final_strength("recommend_x") == 0.4
 
 
+def test_agent_available_relations() -> None:
+    public_relation = Relation(source="public_reason", target="topic", kind="support")
+    available_relation = Relation(source="private_reason", target="topic", kind="attack")
+    agent = MTAXAgent(
+        "agent",
+        private_arguments={
+            "public_reason": Argument(label="public_reason", text="Public reason."),
+            "private_reason": Argument(label="private_reason", text="Private reason."),
+        },
+        private_relations=[public_relation, available_relation],
+    )
+    exchange = MTAX(agents=[agent], topics=["topic"])
+    exchange.state.public_bm.add_relation(public_relation.source, public_relation.target, public_relation.kind)
+    agent.private_qbaf.add_argument("private_target", 0.5)
+    agent.private_qbaf.add_support_relation("private_reason", "private_target")
+    assert agent.available_relations(exchange.state.public_bm) == [(available_relation, 0.5)]
+
+
 def test_agent_semantics_override_exchange_default() -> None:
     default_agent = MTAXAgent("default")
     override_agent = MTAXAgent("override", semantics="basic_model")
