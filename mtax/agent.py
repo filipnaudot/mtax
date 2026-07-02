@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from copy import deepcopy
+
 from qbaf import QBAFramework
 
 from mtax.bm import BipolarMultitree
@@ -85,6 +87,30 @@ class MTAXAgent:
             if (source, target, "support") in public_bm.relations
         ]
         return QBAFramework(arguments, initial_strengths, attacks, supports, semantics=self.semantics)
+
+
+    def available_relations(self, public_bm: BipolarMultitree) -> list[tuple[Relation, float]]:
+        private_relations = [
+            Relation(source=source, target=target, kind="attack")
+            for source, target in self.private_qbaf.attack_relations.relations
+        ] + [
+            Relation(source=source, target=target, kind="support")
+            for source, target in self.private_qbaf.support_relations.relations
+        ]
+        available = []
+        source_strengths: dict[str, float] = {}
+        for relation in private_relations:
+            if (relation.source, relation.target, relation.kind) in public_bm.relations:
+                continue
+            candidate = deepcopy(public_bm)
+            try:
+                candidate.add_relation(relation.source, relation.target, relation.kind)
+            except ValueError:
+                continue
+            if relation.source not in source_strengths:
+                source_strengths[relation.source] = self.private_qbaf.final_strength(relation.source)
+            available.append((relation, source_strengths[relation.source]))
+        return sorted(available, key=lambda item: (item[0].source, item[0].target, item[0].kind))
 
 
     def ingest(self, disclosure: Disclosure) -> None:
