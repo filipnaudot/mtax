@@ -48,6 +48,12 @@ class MTAXAgent:
         self.topics = tuple(topics)
         self.semantics = self._semantics_override or default_semantics
         arguments = list(dict.fromkeys((*self.topics, *self.private_arguments)))
+        known_arguments = set(arguments)
+        for relation in self.private_relations:
+            unknown = [f"{source} '{target}'"
+                       for source, target in (("source", relation.source), ("target", relation.target))
+                       if target not in known_arguments]
+            if unknown: raise ValueError(f"Private relation has unknown {' and '.join(unknown)}")
         for argument in arguments:
             self.private_strengths.setdefault(argument, 0.5)
         attacks = [

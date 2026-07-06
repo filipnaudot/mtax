@@ -130,6 +130,19 @@ def test_agents_ingest_and_preserve_private_state() -> None:
     assert agent.private_qbaf.final_strength("recommend_x") == 0.4
 
 
+def test_private_relations_require_known_arguments() -> None:
+    agent = MTAXAgent("agent", private_relations=[Relation(source="unknown", target="topic", kind="support")])
+    with pytest.raises(ValueError, match="Private relation has unknown source 'unknown'"):
+        MTAX(agents=[agent], topics=["topic"])
+
+
+def test_private_relations_accept_private_arguments_and_topics() -> None:
+    agent = MTAXAgent("agent",
+                      private_arguments={"reason": Argument(label="reason", text="A reason.")},
+                      private_relations=[Relation(source="reason", target="topic", kind="support")])
+    MTAX(agents=[agent], topics=["topic"])
+
+
 def test_agent_available_relations() -> None:
     public_relation = Relation(source="public_reason", target="topic", kind="support")
     available_relation = Relation(source="private_reason", target="topic", kind="attack")
