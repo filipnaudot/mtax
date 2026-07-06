@@ -63,7 +63,6 @@ result = exchange.result()
 - [x] Disclosure-effect measure basics
 - [x] Add agent-specific (stance) thresholds
 - [x] Clean up def result() in MTAX.py
-- [ ] Populate final strengths and stances in ExchangeResult
 - [ ] Implement ranking disclosure-effect measure (Kendall)
 - [ ] Check that every source and target in private_relations exists in either private_arguments or topics
 - [ ] Provide public exchange context to symbolic agents

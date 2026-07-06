@@ -68,8 +68,6 @@ class ExchangeResult:
     termination_reason: Literal["resolved", "max_rounds"] | None
     rounds: int
     final_state: DialogueState
-    final_strengths: dict[str, float]
-    final_stances: dict[str, bool]
     trace: list[Contribution]
     metrics: dict[str, float | int | bool | object]
 
@@ -234,8 +232,6 @@ class MTAX:
             termination_reason=termination_reason,
             rounds=self._state.round_index,
             final_state=self._state,
-            final_strengths={},
-            final_stances={},
             trace=list(self._state.trace),
             metrics={
                 "rounds": self._state.round_index,
