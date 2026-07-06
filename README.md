@@ -61,8 +61,27 @@ result = exchange.result()
 - [x] Generic/abstract turn-taking class TurnTaking
 - [x] Implement simple fixed order turn-taking function that implements TurnTaking
 - [x] Disclosure-effect measure basics
-- [ ] Implement a simple agent that uses disclosure-effect measure
+- [x] Add agent-specific (stance) thresholds
+- [x] Clean up def result() in MTAX.py
+- [ ] Populate final strengths and stances in ExchangeResult
+- [ ] Implement ranking disclosure-effect measure (Kendall)
+- [ ] Check that every source and target in private_relations exists in either private_arguments or topics
+- [ ] Provide public exchange context to symbolic agents
 
+### TODO for MTAX Evaluation
+
+- [ ] Add a simple random universal graph generator
+- [ ] Extract private QBAFs from generated graphs
+- [ ] Generate only initially unresolved exchanges
+- [ ] Implement a simple symbolic agent class that can be used with different behaviours
+- [ ] Implement passive behaviour
+- [ ] Implement shallow behaviour
+- [ ] Implement greedy behaviour
+- [ ] Implement counterfactual behaviour
+- [ ] Implement Top-r cautious behaviour
+- [ ] Implement Top-r defensive behaviour
+- [ ] Implement consensus-seeking behaviour
+- [ ] Run multi-topic and multi-agent evaluations: resolution, contribution, persuasion, and accuracy metrics
 
 ## TODO for MTAX Usage
 
