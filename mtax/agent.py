@@ -8,6 +8,11 @@ from mtax.bm import BipolarMultitree
 from mtax.schema import Argument, Disclosure, Pass, Relation
 
 
+NEGATIVE = -1
+NEUTRAL = 0
+POSITIVE = 1
+
+
 
 class MTAXAgent:
     def __init__(self,
@@ -15,10 +20,16 @@ class MTAXAgent:
                  private_arguments: dict[str, Argument] | None = None,
                  private_strengths: dict[str, float] | None = None,
                  private_relations: list[Relation] | None = None,
-                 semantics: str | None = None) -> None:
+                 semantics: str | None = None,
+                 negative_below: float = 0.5,
+                 positive_above: float = 0.5) -> None:
+        if negative_below > positive_above:
+            raise ValueError("negative_below must not exceed positive_above")
         self.name = name
         self._semantics_override = semantics
         self.semantics = semantics
+        self.negative_below = negative_below
+        self.positive_above = positive_above
         self.topics: tuple[str, ...] = ()
         self.private_arguments: dict[str, Argument] = private_arguments if private_arguments is not None else {}
         self.private_strengths: dict[str, float] = private_strengths if private_strengths is not None else {}
@@ -64,6 +75,15 @@ class MTAXAgent:
 
     def rate(self, argument: Argument) -> float:
         return 0.5
+
+
+    def stance(self, topic: str) -> int:
+        strength = self.private_qbaf.final_strength(topic)
+        if strength < self.negative_below:
+            return NEGATIVE
+        if strength > self.positive_above:
+            return POSITIVE
+        return NEUTRAL
 
 
     def build_qbaf_from_bm(self, public_bm: BipolarMultitree) -> QBAFramework:

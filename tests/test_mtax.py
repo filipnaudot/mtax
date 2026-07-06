@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from mtax import InvalidAgentResponse, MTAXAgent, Argument, Disclosure, ExchangeConfig, MTAX, Pass, Relation
+from mtax import InvalidAgentResponse, MTAXAgent, Argument, Disclosure, ExchangeConfig, MTAX, NEGATIVE, NEUTRAL, POSITIVE, Pass, Relation
 
 
 def test_mtax_step_and_result() -> None:
@@ -28,11 +28,64 @@ def test_mtax_step_and_result() -> None:
     for state in exchange: pass
     assert exchange.state.round_index == 2
     assert exchange.result().metrics["num_contributions"] == len(exchange.state.trace)
+    assert exchange.result().termination_reason == "max_rounds"
+
+
+def test_resolved_termination_reason() -> None:
+    class PassingAgent(MTAXAgent):
+        def contribute(self, violation_feedback=None) -> Pass:
+            return Pass(action="pass")
+
+    exchange = MTAX(
+        agents=[PassingAgent("first"), PassingAgent("second")],
+        topics=["topic"],
+        config=ExchangeConfig(max_rounds=2),
+    )
+
+    exchange.step()
+
+    assert exchange.result().resolved
+    assert exchange.result().termination_reason == "resolved"
+
+
+def test_active_exchange_has_no_termination_reason() -> None:
+    class PassingAgent(MTAXAgent):
+        def contribute(self, violation_feedback=None) -> Pass:
+            return Pass(action="pass")
+
+    exchange = MTAX(
+        agents=[PassingAgent("negative", private_strengths={"topic": 0.3}),
+                PassingAgent("positive", private_strengths={"topic": 0.7})],
+        topics=["topic"],
+        config=ExchangeConfig(max_rounds=2),
+    )
+
+    exchange.step()
+
+    assert not exchange.result().resolved
+    assert exchange.result().termination_reason is None
 
 
 def test_top_r_resolution_requires_multiple_topics() -> None:
     with pytest.raises(ValueError, match="top_r requires at least 2 topics"):
         MTAX(agents=[MTAXAgent("agent")], topics=["topic"], config=ExchangeConfig(resolution="top_r"))
+
+
+def test_agent_stance_uses_agent_specific_thresholds() -> None:
+    negative = MTAXAgent("negative", private_strengths={"topic": 0.3}, negative_below=0.4, positive_above=0.6)
+    neutral = MTAXAgent("neutral", private_strengths={"topic": 0.5}, negative_below=0.4, positive_above=0.6)
+    positive = MTAXAgent("positive", private_strengths={"topic": 0.7}, negative_below=0.4, positive_above=0.6)
+
+    MTAX(agents=[negative, neutral, positive], topics=["topic"])
+
+    assert negative.stance("topic") == NEGATIVE
+    assert neutral.stance("topic") == NEUTRAL
+    assert positive.stance("topic") == POSITIVE
+
+
+def test_agent_rejects_invalid_stance_thresholds() -> None:
+    with pytest.raises(ValueError, match="negative_below must not exceed positive_above"):
+        MTAXAgent("agent", negative_below=0.6, positive_above=0.4)
 
 
 def test_contributor_mapping() -> None:

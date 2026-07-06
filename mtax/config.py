@@ -20,4 +20,3 @@ class ExchangeConfig:
     resolution: Literal["stance", "top_r"] = "stance"
     top_r: int = 2
     semantics: str = QBAFSemantics.DFQUAD
-    resolution_threshold: float = 0.5

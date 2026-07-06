@@ -65,6 +65,7 @@ class DialogueState:
 class ExchangeResult:
     topics: list[str]
     resolved: bool
+    termination_reason: Literal["resolved", "max_rounds"] | None
     rounds: int
     final_state: DialogueState
     final_strengths: dict[str, float]
@@ -215,16 +216,22 @@ class MTAX:
     def is_resolved(self) -> bool:
         if self.config.resolution == "top_r":
             return self.resolution.top_r(self.config.top_r)
-        return self.resolution.stance(self.config.resolution_threshold, self.config.resolution_threshold)
+        return self.resolution.stance()
 
 
     def result(self) -> ExchangeResult:
         resolved = False
         if (self._state.round_index > 0):
             resolved = self.is_resolved()
+        termination_reason = None
+        if resolved and self.config.stop_when_resolved:
+            termination_reason = "resolved"
+        elif self._state.round_index >= self.config.max_rounds:
+            termination_reason = "max_rounds"
         return ExchangeResult(
             topics=list(self.topics),
             resolved=resolved,
+            termination_reason=termination_reason,
             rounds=self._state.round_index,
             final_state=self._state,
             final_strengths={},

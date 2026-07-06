@@ -10,7 +10,10 @@ def test_public_imports() -> None:
         InvalidAgentResponse,
         MTAX,
         MTAXTerminalUI,
+        NEGATIVE,
+        NEUTRAL,
         Pass,
+        POSITIVE,
         QBAFSemantics,
         Relation,
     )
@@ -25,7 +28,10 @@ def test_public_imports() -> None:
     assert InvalidAgentResponse
     assert MTAX
     assert MTAXTerminalUI
+    assert NEGATIVE == -1
+    assert NEUTRAL == 0
     assert Pass
+    assert POSITIVE == 1
     assert QBAFSemantics
     assert Relation
 

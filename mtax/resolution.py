@@ -18,20 +18,11 @@ class Resolution:
         return None not in rankings and len(set(rankings)) == 1
 
 
-    def stance(self, negative_below: float = 0.5, positive_above: float = 0.5) -> bool:
-        if negative_below > positive_above:
-            raise ValueError("negative_below must not exceed positive_above")
+    def stance(self) -> bool:
         if not self.agents:
             return False
         return all(
-            len({
-                self._stance(
-                    agent.private_qbaf.final_strength(topic),
-                    negative_below,
-                    positive_above,
-                )
-                for agent in self.agents
-            }) == 1
+            len({agent.stance(topic) for agent in self.agents}) == 1
             for topic in self.topics
         )
     
@@ -46,12 +37,3 @@ class Resolution:
         if any(strengths[first] == strengths[second] for first, second in zip(relevant, relevant[1:])):
             return None
         return ranking[:r]
-
-
-    @staticmethod
-    def _stance(strength: float, negative_below: float, positive_above: float) -> str:
-        if strength < negative_below:
-            return "negative"
-        if strength > positive_above:
-            return "positive"
-        return "neutral"
