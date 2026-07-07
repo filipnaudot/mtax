@@ -64,7 +64,7 @@ result = exchange.result()
 - [x] Add agent-specific (stance) thresholds
 - [x] Clean up def result() in MTAX.py
 - [x] Check that every source and target in private_relations exists in either private_arguments or topics
-- [ ] Implement ranking disclosure-effect measure (Kendall)
+- [x] Implement ranking disclosure-effect measure (Kendall)
 - [ ] Provide public exchange context to symbolic agents
 
 ### TODO for MTAX Evaluation
