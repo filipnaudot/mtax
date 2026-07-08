@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal
 
@@ -119,7 +120,10 @@ class MTAX:
             invalid_response = None
             for attempt in range(1, self.config.max_retries + 2):
                 try:
-                    disclosure = agent.contribute(violation_feedback=feedback)
+                    disclosure = agent.contribute(
+                        public_bm=deepcopy(self._state.public_bm),
+                        violation_feedback=feedback,
+                    )
                 except InvalidAgentResponse as error:
                     invalid_response = str(error)
                     feedback = invalid_response
