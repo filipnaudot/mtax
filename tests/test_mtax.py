@@ -6,14 +6,16 @@ from mtax import InvalidAgentResponse, MTAXAgent, Argument, Disclosure, Exchange
 
 def test_mtax_step_and_result() -> None:
     class SimpleAgent(MTAXAgent):
-        def contribute(self, violation_feedback=None) -> Disclosure:
+        def contribute(self, public_bm, violation_feedback=None) -> Disclosure:
+            self.public_bm = public_bm
             label = f"arg_{len(self.private_arguments)}"
             return Disclosure(
-                arguments=[Argument(label=label, text=','.join(self.topics))], # type: ignore
+                arguments=[Argument(label=label, text="Test argument.")], # type: ignore
                 relations=[Relation(source=label, target="recommend_x", kind="support")], # type: ignore
             )
+    agents = [SimpleAgent("machine"), SimpleAgent("human")]
     exchange = MTAX(
-        agents=[SimpleAgent("machine"), SimpleAgent("human")],
+        agents=agents, # type: ignore
         topics=["recommend_x", "recommend_y", "recommend_z"],
         config=ExchangeConfig(max_rounds=2, stop_when_resolved=False),
     )
@@ -22,18 +24,23 @@ def test_mtax_step_and_result() -> None:
     assert state.round_index == 1
     assert state.topics == ["recommend_x", "recommend_y", "recommend_z"]
     assert state.trace[0].agent == "machine"
-    assert state.trace[0].disclosure.arguments[0].text == "recommend_x,recommend_y,recommend_z"
+    assert state.trace[0].disclosure.arguments[0].text == "Test argument."
     assert state.trace[0].round_index == 0
-    assert state.public_arguments["arg_0"] == Argument(label="arg_0", text="recommend_x,recommend_y,recommend_z")
+    assert state.public_arguments["arg_0"] == Argument(label="arg_0", text="Test argument.")
+    assert agents[0].public_bm.arguments == set(state.topics)
+    assert agents[1].public_bm.arguments == {*state.topics, "arg_0"}
+    assert agents[1].public_bm is not state.public_bm # check deep copy, not original public BM
     for state in exchange: pass
     assert exchange.state.round_index == 2
     assert exchange.result().metrics["num_contributions"] == len(exchange.state.trace)
     assert exchange.result().termination_reason == "max_rounds"
+    exchange.step()
+    assert agents[0].public_bm.arguments == {*state.topics, "arg_0", "arg_1"}
 
 
 def test_resolved_termination_reason() -> None:
     class PassingAgent(MTAXAgent):
-        def contribute(self, violation_feedback=None) -> Pass:
+        def contribute(self, public_bm, violation_feedback=None) -> Pass:
             return Pass(action="pass")
 
     exchange = MTAX(
@@ -50,7 +57,7 @@ def test_resolved_termination_reason() -> None:
 
 def test_active_exchange_has_no_termination_reason() -> None:
     class PassingAgent(MTAXAgent):
-        def contribute(self, violation_feedback=None) -> Pass:
+        def contribute(self, public_bm, violation_feedback=None) -> Pass:
             return Pass(action="pass")
 
     exchange = MTAX(
@@ -92,7 +99,7 @@ def test_contributor_mapping() -> None:
     relation = Relation(source="cost_is_high", target="recommend_x", kind="attack")
 
     class RelationAgent(MTAXAgent):
-        def contribute(self, violation_feedback=None) -> Disclosure:
+        def contribute(self, public_bm, violation_feedback=None) -> Disclosure:
             return Disclosure(
                 arguments=[Argument(label="cost_is_high", text="High cost is a reason against recommend_x.")], # type: ignore
                 relations=[relation], # type: ignore
@@ -109,7 +116,7 @@ def test_contributor_mapping() -> None:
 def test_agents_ingest_and_preserve_private_state() -> None:
     private_argument = Argument(label="private_reason", text="Private reason.")
     class StrengthAgent(MTAXAgent):
-        def contribute(self, violation_feedback=None) -> Disclosure:
+        def contribute(self, public_bm, violation_feedback=None) -> Disclosure:
             return Disclosure(
                 arguments=[Argument(label="cost_is_high", text="The cost is high.")], # type: ignore
                 relations=[Relation(source="cost_is_high", target="recommend_x", kind="attack")], # type: ignore
@@ -192,7 +199,7 @@ def test_invoke_style_agent() -> None:
             super().__init__("machine")
             self._model = FakeModel()
 
-        def contribute(self, violation_feedback=None) -> Disclosure | None:
+        def contribute(self, public_bm, violation_feedback=None) -> Disclosure | None:
             try:
                 return Disclosure.model_validate_json(self._model.invoke(message="contribute"))
             except Exception:
@@ -226,7 +233,7 @@ def test_disclosures_are_immutable() -> None:
 
 def test_agent_can_disclose_multiple_arguments() -> None:
     class MultiArgumentAgent(MTAXAgent):
-        def contribute(self, violation_feedback=None) -> Disclosure:
+        def contribute(self, public_bm, violation_feedback=None) -> Disclosure:
             return Disclosure(
                 arguments=[
                     Argument(label="x", text="Argument x."),
@@ -245,11 +252,11 @@ def test_agent_can_disclose_multiple_arguments() -> None:
 
 def test_agent_pass_and_rejection_are_recorded(capsys) -> None:
     class PassingAgent(MTAXAgent):
-        def contribute(self, violation_feedback=None) -> Pass:
+        def contribute(self, public_bm, violation_feedback=None) -> Pass:
             return Pass(action="pass", reason="Nothing useful to add.")
 
     class RejectedAgent(MTAXAgent):
-        def contribute(self, violation_feedback=None) -> Disclosure:
+        def contribute(self, public_bm, violation_feedback=None) -> Disclosure:
             return Disclosure(
                 arguments=[Argument(label="x", text="Argument x.")], # type: ignore
                 relations=[Relation(source="x", target="unknown", kind="support")], # type: ignore
@@ -269,7 +276,7 @@ def test_invalid_agent_response_is_retried_with_feedback() -> None:
             super().__init__("retrying")
             self.attempts = 0
 
-        def contribute(self, violation_feedback=None) -> Pass:
+        def contribute(self, public_bm, violation_feedback=None) -> Pass:
             self.attempts += 1
             if self.attempts == 1:
                 raise InvalidAgentResponse("Response was not valid JSON.")

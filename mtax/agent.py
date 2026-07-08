@@ -75,7 +75,9 @@ class MTAXAgent:
         )
 
 
-    def contribute(self, violation_feedback: str | None = None) -> Disclosure | Pass | None:
+    def contribute(self,
+                   public_bm: BipolarMultitree,
+                   violation_feedback: str | None = None) -> Disclosure | Pass | None:
         raise NotImplementedError
 
 

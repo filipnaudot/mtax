@@ -53,7 +53,7 @@ class LLMAgent(MTAXAgent):
         self._topic_relation_kind = topic_relation_kind
 
 
-    def contribute(self, violation_feedback=None) -> Disclosure | Pass | None:
+    def contribute(self, public_bm, violation_feedback=None) -> Disclosure | Pass | None:
         message = self._contribution_prompt()
         if violation_feedback:
             message += (
