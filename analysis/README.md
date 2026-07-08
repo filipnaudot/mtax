@@ -1,0 +1,22 @@
+# Evaluation TODO
+
+- [x] Add configurable evaluation constants for graph size, private-QBAF size, semantics, and random seed.
+- [ ] Implement seeded universal Bipolar Multitree generation.
+- [ ] Assert universal graph size, validity, topic reachability, and reproducibility with brief failure messages.
+- [ ] Implement random connected private-QBAF extraction from the universal graph.
+- [ ] Assert private-QBAF size, topic inclusion, relation provenance, and topic connectivity with brief failure messages.
+- [ ] Assign random private strengths and supported semantics to agents.
+- [ ] Assert strength ranges, supported semantics, and successful MTAX initialization with brief failure messages.
+- [ ] Generate two-agent exchanges that are initially unresolved, with a maximum-attempt limit.
+- [ ] Assert that generated exchanges are initially unresolved.
+- [ ] Implement `PassiveAgent` in `eval_agents.py`.
+- [ ] Implement `ShallowAgent`.
+- [ ] Implement `GreedyAgent`.
+- [ ] Implement `CounterfactualAgent`.
+- [ ] Implement ranking-based agents.
+- [ ] Assert each agent's selected relation satisfies its behaviour definition.
+- [ ] Implement resolution, contribution, persuasion, and accuracy metrics in `evaluate.py`.
+- [ ] Assert metric ranges and internal consistency with brief failure messages.
+- [ ] Implement seeded experiment execution with matched initial QBAFs across compared strategies.
+- [ ] Assert matched initial conditions and the expected number of completed runs.
+- [ ] Add the full 30/15-argument evaluation entry point.
