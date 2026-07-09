@@ -65,7 +65,7 @@ def parse_args(argv: Sequence[str] | None = None) -> EvaluationConfig:
     )
 
 
-def generate_universal_bm(graph_size: int, num_topics: int, seed: int, extra_edge_probability: float = 0.5) -> BipolarMultitree:
+def generate_bm(graph_size: int, num_topics: int, seed: int, extra_edge_probability: float = 0.5) -> BipolarMultitree:
     labels = [f"argument_{index}" for index in range(graph_size)]
     bm = BipolarMultitree(topics=set(labels[:num_topics]))
     random_generator = random.Random(seed)
@@ -87,24 +87,24 @@ def generate_universal_bm(graph_size: int, num_topics: int, seed: int, extra_edg
     return bm
 
 
-def visualize_bm(bm: BipolarMultitree, output_path: str = "universal_bm") -> str:
+def visualize_bm(bm: BipolarMultitree, output_path: str = "public_exchange") -> str:
     from graphviz import Digraph
-    graph = Digraph("universal_bm", format="png")
+    graph = Digraph("public_exchange", format="png")
     graph.attr(rankdir="BT")
     for argument in sorted(bm.arguments):
         graph.node(argument, shape="box" if argument in bm.topics else "ellipse")
     for source, target, kind in sorted(bm.relations):
-        graph.edge(source, target, label=kind, color="red" if kind == "attack" else "green")
+        graph.edge(source, target, color="red" if kind == "attack" else "green")
     return graph.render(output_path, cleanup=True)
 
 
 if __name__ == "__main__":
     config = parse_args()
-    universal_bm = generate_universal_bm(
+    public_bm = generate_bm(
         config.graph_size,
         config.num_topics,
         config.seed,
         config.extra_edge_probability,
     )
     if config.visualize:
-        print(visualize_bm(universal_bm))
+        print(visualize_bm(public_bm))
