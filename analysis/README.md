@@ -12,4 +12,7 @@
 - [ ] Implement `GreedyAgent` class in `eval_agents.py`.
 - [ ] Implement `CounterfactualAgent` class in `eval_agents.py`.
 - [ ] Implement ranking-based agents class in `eval_agents.py`.
+    - [ ] Implement Top-r cautious behaviour.
+    - [ ] Implement Top-r defensive behaviour.
+    - [ ] Implement consensus-seeking behaviour.
 - [ ] Implement resolution, contribution, persuasion, and accuracy metrics in `evaluate.py`.
