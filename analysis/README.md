@@ -2,7 +2,6 @@
 
 - [x] Add configurable evaluation constants for graph size, private-QBAF size, semantics, and random seed.
 - [x] Implement seeded universal Bipolar Multitree generation.
-- [ ] Assert universal graph size, validity, topic reachability, and reproducibility with brief failure messages.
 - [ ] Implement random connected private-QBAF extraction from the universal graph.
 - [ ] Assert private-QBAF size, topic inclusion, relation provenance, and topic connectivity with brief failure messages.
 - [ ] Assign random private strengths and supported semantics to agents.

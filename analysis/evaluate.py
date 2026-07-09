@@ -84,6 +84,8 @@ def generate_bm(graph_size: int, num_topics: int, seed: int, extra_edge_probabil
                     break
                 except ValueError:
                     continue
+    assert len(bm.arguments) == graph_size, "generated BM has wrong number of arguments"
+    assert bm.topics == set(labels[:num_topics]), "generated BM has wrong topics"
     return bm
 
 
