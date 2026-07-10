@@ -3,21 +3,17 @@ import random
 from dataclasses import dataclass
 from typing import Sequence
 
+from eval_agents import CounterfactualAgent
 from mtax.agent import MTAXAgent
 from mtax.bm import BipolarMultitree
-from mtax.config import QBAFSemantics
+from mtax.config import ExchangeConfig, QBAFSemantics
+from mtax.mtax import MTAX
 from mtax.schema import Argument, Disclosure, Relation
+from mtax.ui import MTAXTerminalUI
 from qbaf import QBAFramework
 
 
-SUPPORTED_SEMANTICS = (
-    QBAFSemantics.BASIC,
-    QBAFSemantics.QUADRATIC_ENERGY,
-    QBAFSemantics.SQUARED_DFQUAD,
-    QBAFSemantics.EULER_BASED_TOP,
-    QBAFSemantics.EULER_BASED,
-    QBAFSemantics.DFQUAD,
-)
+EVALUATION_SEMANTICS = QBAFSemantics.DFQUAD
 
 
 @dataclass(frozen=True)
@@ -26,10 +22,12 @@ class EvaluationConfig:
     num_topics: int
     qbaf_size: int
     num_agents: int
+    max_rounds: int
+    max_attempts: int
     extra_edge_probability: float
-    semantics: tuple[str, ...]
     seed: int
     visualize: bool
+    ui: bool
 
 
 def positive_int(value: str) -> int:
@@ -50,10 +48,12 @@ def parse_args(argv: Sequence[str] | None = None) -> EvaluationConfig:
     parser.add_argument("--num-topics", type=positive_int, default=3)
     parser.add_argument("--qbaf-size", type=positive_int, default=15)
     parser.add_argument("--num-agents", type=positive_int, default=2)
+    parser.add_argument("--max-rounds", type=positive_int, default=100)
+    parser.add_argument("--max-attempts", type=positive_int, default=100)
     parser.add_argument("--extra-edge-probability", type=probability, default=0.5)
-    parser.add_argument("--semantics", nargs="+", choices=SUPPORTED_SEMANTICS, default=SUPPORTED_SEMANTICS)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--visualize", action="store_true")
+    parser.add_argument("--ui", action="store_true")
     args = parser.parse_args(argv)
     if args.qbaf_size > args.graph_size:
         parser.error("--qbaf-size must not exceed --graph-size")
@@ -61,15 +61,19 @@ def parse_args(argv: Sequence[str] | None = None) -> EvaluationConfig:
         parser.error("--qbaf-size must be at least --num-topics")
     if args.num_topics >= args.graph_size:
         parser.error("--num-topics must be smaller than --graph-size")
+    if args.num_agents < 2:
+        parser.error("--num-agents must be at least 2")
     return EvaluationConfig(
         graph_size=args.graph_size,
         num_topics=args.num_topics,
         qbaf_size=args.qbaf_size,
         num_agents=args.num_agents,
+        max_rounds=args.max_rounds,
+        max_attempts=args.max_attempts,
         extra_edge_probability=args.extra_edge_probability,
-        semantics=tuple(args.semantics),
         seed=args.seed,
         visualize=args.visualize,
+        ui=args.ui,
     )
 
 
@@ -112,6 +116,10 @@ def derive_private_agent(agent: MTAXAgent, universal_bm: BipolarMultitree, qbaf_
         if source in selected and target in selected and (source, target, kind) not in selected_relations:
             selected_relations.append((source, target, kind))
     agent.initialize(sorted(universal_bm.topics), default_semantics)
+    for topic in sorted(universal_bm.topics):
+        argument = Argument(label=topic, text=topic)
+        agent.private_strengths[topic] = agent.rate(argument)
+        agent.private_qbaf.modify_initial_strength(topic, agent.private_strengths[topic])
     relations = tuple(Relation(source=source, target=target, kind=kind) # type: ignore
                       for source, target, kind in selected_relations)
     if relations:
@@ -150,13 +158,40 @@ def visualize_qbaf(qbaf: QBAFramework, topics: set[str], output_path: str = "pri
     return graph.render(output_path, cleanup=True)
 
 
-if __name__ == "__main__":
-    config = parse_args()
-    public_bm = generate_bm(config.graph_size, config.num_topics, config.seed, config.extra_edge_probability)
+def create_exchange(config: EvaluationConfig, seed: int) -> tuple[BipolarMultitree, tuple[MTAXAgent, ...], MTAX]:
+    public_bm = generate_bm(config.graph_size, config.num_topics, seed, config.extra_edge_probability)
     agents = tuple(
-        derive_private_agent(MTAXAgent(f"agent_{index}"), public_bm, config.qbaf_size, config.seed+(index+1), config.semantics[index % len(config.semantics)])
+        derive_private_agent(CounterfactualAgent(f"agent_{index}", seed=seed + index + 1),
+                             public_bm,
+                             config.qbaf_size,
+                             seed + index + 1,
+                             EVALUATION_SEMANTICS)
         for index in range(config.num_agents)
     )
+    exchange_agents = list(agents[:2])
+    exchange = MTAX(exchange_agents,
+                    sorted(public_bm.topics),
+                    ExchangeConfig(max_rounds=config.max_rounds, stop_when_resolved=True, resolution="top_r", semantics=EVALUATION_SEMANTICS))
+    return public_bm, agents, exchange
+
+
+if __name__ == "__main__":
+    config = parse_args()
+    for attempt in range(config.max_attempts):
+        public_bm, agents, exchange = create_exchange(config, config.seed + attempt)
+        if not exchange.is_resolved():
+            break
+    else:
+        raise RuntimeError("could not generate an initially unresolved exchange")
+
+    ui = MTAXTerminalUI(exchange)
+    states = []
+    for state in exchange:
+        states.append(state)
+        if config.ui:
+            ui.render()
+    assert states, "counterfactual exchange test did not run"
+    assert states[-1].round_index <= config.max_rounds, "counterfactual exchange exceeded max rounds"
     if config.visualize:
         print(visualize_bm(public_bm))
         for agent in agents:

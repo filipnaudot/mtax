@@ -75,23 +75,26 @@ def kendall_tau_b(first: Mapping[str, float], second: Mapping[str, float]) -> fl
     return (concordant - discordant) / denominator
 
 
-def ranking_disclosure_effects(public_qbaf: QBAFramework, private_qbaf: QBAFramework, topics: Sequence[str]) -> list[tuple[Relation, float]]:
-    public_attacks = public_qbaf.attack_relations.relations
-    public_supports = public_qbaf.support_relations.relations
-    private_relations = [
-        Relation(source=source, target=target, kind="attack")
-        for source, target in private_qbaf.attack_relations.relations - public_attacks
-    ] + [
-        Relation(source=source, target=target, kind="support")
-        for source, target in private_qbaf.support_relations.relations - public_supports
-    ]
+def ranking_disclosure_effects(public_qbaf: QBAFramework,
+                               private_qbaf: QBAFramework,
+                               topics: Sequence[str],
+                               relations: Sequence[Relation] | None = None) -> list[tuple[Relation, float]]:
+    if relations is None:
+        public_attacks = public_qbaf.attack_relations.relations
+        public_supports = public_qbaf.support_relations.relations
+        relations = [
+            Relation(source=source, target=target, kind="attack")
+            for source, target in private_qbaf.attack_relations.relations - public_attacks
+        ] + [
+            Relation(source=source, target=target, kind="support")
+            for source, target in private_qbaf.support_relations.relations - public_supports
+        ]
     private_ranking = topic_ranking(private_qbaf, topics)
     before = kendall_tau_b(topic_ranking(public_qbaf, topics), private_ranking)
     effects: list[tuple[Relation, float]] = []
-    for relation in private_relations:
+    for relation in relations:
         if relation.target not in public_qbaf.arguments:
             continue
-
         hypothetical_qbaf = public_qbaf.copy()
         if relation.source not in hypothetical_qbaf.arguments:
             hypothetical_qbaf.add_argument(relation.source, private_qbaf.initial_strength(relation.source))
@@ -99,7 +102,6 @@ def ranking_disclosure_effects(public_qbaf: QBAFramework, private_qbaf: QBAFrame
             hypothetical_qbaf.add_attack_relation(relation.source, relation.target)
         else:
             hypothetical_qbaf.add_support_relation(relation.source, relation.target)
-
         after = kendall_tau_b(topic_ranking(hypothetical_qbaf, topics), private_ranking)
         effects.append((relation, after - before))
     return sorted(effects, key=lambda item: (-item[1], item[0].source, item[0].target, item[0].kind))
