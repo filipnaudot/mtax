@@ -27,7 +27,7 @@ Each agent must decide:
 from mtax import MTAXAgent, ExchangeConfig, MTAX
 
 class MyAgent(MTAXAgent):
-    def contribute(self, violation_feedback=None):
+    def contribute(self, public_bm, violation_feedback=None):
         ...
 
 exchange = MTAX(
