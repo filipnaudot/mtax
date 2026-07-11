@@ -13,5 +13,6 @@ def test_ranking_disclosure_effect_measures_increased_kendall_alignment() -> Non
         [("reason", "a")],
         semantics="DFQuAD_model",
     )
-    effects = ranking_disclosure_effects(public, private, ["a", "b"])
-    assert effects == [(Relation(source="reason", target="a", kind="support"), 2.0)]
+    relation = Relation(source="reason", target="a", kind="support")
+    assert ranking_disclosure_effects(public, private, ["a", "b"], relations=[relation]) == [(relation, 2.0)]
+    assert ranking_disclosure_effects(public, private, ["a", "b"], relations=[]) == []
