@@ -4,11 +4,10 @@
 - [x] Implement seeded universal Bipolar Multitree generation.
 - [x] Derive agents with private QBAFs by letting agents ingest and rate private BM
   subsets.
-- [ ] Implement `CounterfactualAgent` class in `eval_agents.py`.
-- [ ] Generate two-agent exchanges that are initially unresolved (assert this), with a maximum-attempt limit.
-- [ ] Implement `PassiveAgent` class in a new file: `eval_agents.py`.
-- [ ] Implement `ShallowAgent` class in `eval_agents.py`.
+- [x] Implement `CounterfactualAgent` class in `eval_agents.py`.
+- [x] Generate two-agent exchanges that are initially unresolved, with a maximum-attempt limit.
 - [ ] Implement `GreedyAgent` class in `eval_agents.py`.
+- [ ] Implement `ShallowAgent` class in `eval_agents.py`.
 - [ ] Implement ranking-based agents class in `eval_agents.py`.
     - [ ] Implement Top-r cautious behaviour.
     - [ ] Implement Top-r defensive behaviour.
