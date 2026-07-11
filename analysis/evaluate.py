@@ -161,10 +161,10 @@ def visualize_qbaf(qbaf: QBAFramework, topics: set[str], output_path: str = "pri
 def create_exchange(config: EvaluationConfig, seed: int) -> tuple[BipolarMultitree, tuple[MTAXAgent, ...], MTAX]:
     public_bm = generate_bm(config.graph_size, config.num_topics, seed, config.extra_edge_probability)
     agents = tuple(
-        derive_private_agent(CounterfactualAgent(f"agent_{index}", seed=seed + index + 1),
+        derive_private_agent(CounterfactualAgent(f"agent_{index}", seed=seed+index+1),
                              public_bm,
                              config.qbaf_size,
-                             seed + index + 1,
+                             seed+index+1,
                              EVALUATION_SEMANTICS)
         for index in range(config.num_agents)
     )
@@ -188,8 +188,7 @@ if __name__ == "__main__":
     states = []
     for state in exchange:
         states.append(state)
-        if config.ui:
-            ui.render()
+        if config.ui: ui.render()
     assert states, "counterfactual exchange test did not run"
     assert states[-1].round_index <= config.max_rounds, "counterfactual exchange exceeded max rounds"
     if config.visualize:
