@@ -3,7 +3,7 @@ import random
 from dataclasses import dataclass
 from typing import Sequence
 
-from eval_agents import CounterfactualAgent, GreedyAgent
+from eval_agents import CounterfactualAgent
 from mtax.agent import MTAXAgent
 from mtax.bm import BipolarMultitree
 from mtax.config import ExchangeConfig, QBAFSemantics
@@ -24,7 +24,6 @@ class EvaluationConfig:
     num_agents: int
     max_rounds: int
     max_attempts: int
-    runs: int
     extra_edge_probability: float
     seed: int
     visualize: bool
@@ -51,7 +50,6 @@ def parse_args(argv: Sequence[str] | None = None) -> EvaluationConfig:
     parser.add_argument("--num-agents", type=positive_int, default=2)
     parser.add_argument("--max-rounds", type=positive_int, default=100)
     parser.add_argument("--max-attempts", type=positive_int, default=100)
-    parser.add_argument("--runs", type=positive_int, default=1)
     parser.add_argument("--extra-edge-probability", type=probability, default=0.5)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--visualize", action="store_true")
@@ -72,7 +70,6 @@ def parse_args(argv: Sequence[str] | None = None) -> EvaluationConfig:
         num_agents=args.num_agents,
         max_rounds=args.max_rounds,
         max_attempts=args.max_attempts,
-        runs=args.runs,
         extra_edge_probability=args.extra_edge_probability,
         seed=args.seed,
         visualize=args.visualize,
@@ -161,10 +158,10 @@ def visualize_qbaf(qbaf: QBAFramework, topics: set[str], output_path: str = "pri
     return graph.render(output_path, cleanup=True)
 
 
-def create_exchange(config: EvaluationConfig, agent_type: type[MTAXAgent], seed: int) -> tuple[BipolarMultitree, tuple[MTAXAgent, ...], MTAX]:
+def create_exchange(config: EvaluationConfig, seed: int) -> tuple[BipolarMultitree, tuple[MTAXAgent, ...], MTAX]:
     public_bm = generate_bm(config.graph_size, config.num_topics, seed, config.extra_edge_probability)
     agents = tuple(
-        derive_private_agent(agent_type(f"agent_{index}", seed=seed+index+1), # type: ignore
+        derive_private_agent(CounterfactualAgent(f"agent_{index}", seed=seed+index+1),
                              public_bm,
                              config.qbaf_size,
                              seed+index+1,
@@ -178,51 +175,23 @@ def create_exchange(config: EvaluationConfig, agent_type: type[MTAXAgent], seed:
     return public_bm, agents, exchange
 
 
-def run_exchange(exchange: MTAX, show_ui: bool) -> None:
+if __name__ == "__main__":
+    config = parse_args()
+    for attempt in range(config.max_attempts):
+        public_bm, agents, exchange = create_exchange(config, config.seed + attempt)
+        if not exchange.is_resolved():
+            break
+    else:
+        raise RuntimeError("could not generate an initially unresolved exchange")
+
     ui = MTAXTerminalUI(exchange)
     states = []
     for state in exchange:
         states.append(state)
-        if show_ui:
-            ui.render()
-    assert states, "exchange did not run"
-    assert states[-1].round_index <= exchange.config.max_rounds, "exchange exceeded max rounds"
-
-
-if __name__ == "__main__":
-    config = parse_args()
-    strategies = (("greedy", GreedyAgent), ("counterfactual", CounterfactualAgent))
-    results: dict[str, list] = {name: [] for name, _ in strategies}
-    last_public_bm = None
-    last_agents: tuple[MTAXAgent, ...] = ()
-
-    for run_index in range(config.runs):
-        seed = config.seed + run_index * config.max_attempts
-        for attempt in range(config.max_attempts):
-            _, _, trial_exchange = create_exchange(config, CounterfactualAgent, seed + attempt)
-            if not trial_exchange.is_resolved():
-                seed += attempt
-                break
-        else:
-            raise RuntimeError("could not generate an initially unresolved exchange")
-
-        for name, agent_type in strategies:
-            public_bm, agents, exchange = create_exchange(config, agent_type, seed)
-            assert not exchange.is_resolved(), "exchange is initially resolved"
-            run_exchange(exchange, config.ui and config.runs == 1)
-            results[name].append(exchange.result())
-            last_public_bm = public_bm
-            last_agents = agents
-
-    print("strategy,runs,resolved,resolution_rate,avg_rounds,avg_contributions")
-    for name, _ in strategies:
-        strategy_results = results[name]
-        resolved = sum(result.resolved for result in strategy_results)
-        avg_rounds = sum(result.rounds for result in strategy_results) / len(strategy_results)
-        avg_contributions = sum(len(result.trace) for result in strategy_results) / len(strategy_results)
-        print(f"{name},{len(strategy_results)},{resolved},{resolved / len(strategy_results):.3f},{avg_rounds:.2f},{avg_contributions:.2f}")
-
-    if config.visualize and last_public_bm is not None:
-        print(visualize_bm(last_public_bm))
-        for agent in last_agents:
+        if config.ui: ui.render()
+    assert states, "counterfactual exchange test did not run"
+    assert states[-1].round_index <= config.max_rounds, "counterfactual exchange exceeded max rounds"
+    if config.visualize:
+        print(visualize_bm(public_bm))
+        for agent in agents:
             print(visualize_qbaf(agent.private_qbaf, set(agent.topics), agent.name))
