@@ -41,3 +41,7 @@ for state in exchange:
 
 result = exchange.result()
 ```
+
+
+## Status
+Although the core MTAX exchange framework is usable, this repository is under active development.
