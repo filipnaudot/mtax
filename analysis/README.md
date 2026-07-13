@@ -20,8 +20,4 @@ python evaluate.py --experiment all --runs 100 --strategies greedy,shallow,count
 - [x] Generate two-agent exchanges that are initially unresolved, with a maximum-attempt limit.
 - [x] Implement `GreedyAgent` class in `eval_agents.py`.
 - [x] Implement `ShallowAgent` class in `eval_agents.py`.
-- [ ] Implement ranking-based agents class in `eval_agents.py`.
-    - [ ] Implement Top-r cautious behaviour.
-    - [ ] Implement Top-r defensive behaviour.
-    - [ ] Implement consensus-seeking behaviour.
 - [ ] Implement resolution, contribution, persuasion, and accuracy metrics in `evaluate.py`.
