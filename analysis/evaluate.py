@@ -197,7 +197,7 @@ def visualize_qbaf(qbaf: QBAFramework, topics: set[str], output_path: str = "pri
 
 
 def create_exchange(config: EvaluationConfig, strategy: str, seed: int) -> tuple[BipolarMultitree, MTAX]:
-    public_bm = generate_bm(config.graph_size, config.num_topics, seed, config.extra_edge_probability)
+    universal_bm = generate_bm(config.graph_size, config.num_topics, seed, config.extra_edge_probability)
     agents = []
     for index in range(config.num_agents):
         agent_seed = seed + index + 1
@@ -209,12 +209,12 @@ def create_exchange(config: EvaluationConfig, strategy: str, seed: int) -> tuple
             agent = CounterfactualAgent(f"agent_{index}", seed=agent_seed)
         else:
             raise ValueError(f"unknown strategy: {strategy}")
-        agents.append(derive_private_agent(agent, public_bm, config.qbaf_size, agent_seed, EVALUATION_SEMANTICS))
+        agents.append(derive_private_agent(agent, universal_bm, config.qbaf_size, agent_seed, EVALUATION_SEMANTICS))
     agents = tuple(agents)
     exchange = MTAX(list(agents),
-                    sorted(public_bm.topics),
+                    sorted(universal_bm.topics),
                     ExchangeConfig(max_rounds=config.max_rounds, stop_when_resolved=True, resolution="top_r", semantics=EVALUATION_SEMANTICS))
-    return public_bm, exchange
+    return universal_bm, exchange
 
 
 def run_exchange(exchange: MTAX) -> None:
@@ -272,9 +272,6 @@ if __name__ == "__main__":
     cases = experiment_cases(config)
     total = len(cases) * config.runs * len(STRATEGIES)
     done = 0
-    last_public_bm = None
-    last_exchange = None
-
     with open(RESULT_PATH, "w", newline="") as file:
         writer = csv.writer(file)
         writer.writerow(result_csv_headers)
@@ -285,11 +282,12 @@ if __name__ == "__main__":
                 run_seed = case.config.seed + run_index * case.config.max_attempts
                 seed = find_unresolved_seed(case.config, run_seed)
                 for name in STRATEGIES:
-                    public_bm, exchange = create_exchange(case.config, name, seed)
+                    universal_bm, exchange = create_exchange(case.config, name, seed)
                     assert not exchange.is_resolved(), "exchange is initially resolved"
                     if config.visualize:
-                        last_public_bm = public_bm
-                        last_exchange = exchange
+                        print(visualize_bm(universal_bm))
+                        for agent in exchange.agents:
+                            print(visualize_qbaf(agent.private_qbaf, set(exchange.topics), agent.name))
                     run_exchange(exchange)
                     results[name].append(exchange.result())
                     agreements[name].append(average_ranking_agreement(exchange.agents, exchange.topics))
@@ -315,7 +313,3 @@ if __name__ == "__main__":
                     f"{avg_agreement:.3f}",
                 ])
     print(file=sys.stderr)
-    if config.visualize and last_public_bm is not None and last_exchange is not None:
-        print(visualize_bm(last_public_bm))
-        for agent in last_exchange.agents:
-            print(visualize_qbaf(agent.private_qbaf, set(last_exchange.topics), agent.name))
