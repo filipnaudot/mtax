@@ -9,7 +9,7 @@ python evaluate.py --visualize --graph-size 7 --num-topics 2 --qbaf-size 4 --run
 Run the full evaluation and write `results.csv`:
 
 ```bash
-python evaluate.py --experiment all --runs 100
+python evaluate.py --experiment all --runs 100 --strategies greedy,shallow,counterfactual
 ```
 
 - [x] Add configurable evaluation constants for graph size, private-QBAF size, semantics, and random seed.
