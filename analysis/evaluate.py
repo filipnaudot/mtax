@@ -38,6 +38,7 @@ AGENT_VALUES = (2, 4, 6, 8, 10)
 DENSITY_VALUES = (0.0, 0.25, 0.5, 0.75)
 SHALLOW_MAX_CONTRIBUTIONS = 3
 STRATEGIES = ("shallow", "greedy", "counterfactual")
+STRATEGY_CHOICES = frozenset(STRATEGIES)
 
 
 @dataclass(frozen=True)
@@ -53,6 +54,7 @@ class EvaluationConfig:
     seed: int
     visualize: bool
     experiment: str
+    strategies: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -75,6 +77,17 @@ def probability(value: str) -> float:
     return parsed
 
 
+def strategy_profile(value: str) -> str:
+    strategies = tuple(strategy.strip() for strategy in value.split(","))
+    if not strategies or any(not strategy for strategy in strategies):
+        raise argparse.ArgumentTypeError("strategy profile must contain at least one strategy")
+    unknown = sorted(set(strategies) - STRATEGY_CHOICES)
+    if unknown:
+        choices = ", ".join(sorted(STRATEGY_CHOICES))
+        raise argparse.ArgumentTypeError(f"unknown strategy {unknown[0]!r}; choose from {choices}")
+    return ",".join(strategies)
+
+
 def parse_args(argv: Sequence[str] | None = None) -> EvaluationConfig:
     parser = argparse.ArgumentParser(description="Run the MTAX evaluation.")
     parser.add_argument("--graph-size", type=positive_int, default=30)
@@ -88,6 +101,7 @@ def parse_args(argv: Sequence[str] | None = None) -> EvaluationConfig:
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--visualize", action="store_true")
     parser.add_argument("--experiment", choices=("base", "topics", "agents", "density", "all"), default="base")
+    parser.add_argument("--strategies", nargs="+", type=strategy_profile, default=STRATEGIES, help="Strategy profiles to evaluate. Use commas to mix strategies across agents.")
     args = parser.parse_args(argv)
     max_num_topics = max(args.num_topics, max(TOPIC_VALUES)) if args.experiment in ("topics", "all") else args.num_topics
     if args.qbaf_size > args.graph_size:
@@ -112,6 +126,7 @@ def parse_args(argv: Sequence[str] | None = None) -> EvaluationConfig:
         seed=args.seed,
         visualize=args.visualize,
         experiment=args.experiment,
+        strategies=tuple(args.strategies),
     )
 
 
@@ -196,19 +211,23 @@ def visualize_qbaf(qbaf: QBAFramework, topics: set[str], output_path: str = "pri
     return graph.render(output_path, cleanup=True)
 
 
-def create_exchange(config: EvaluationConfig, strategy: str, seed: int) -> tuple[BipolarMultitree, MTAX]:
+def create_agent(strategy: str, name: str, seed: int) -> MTAXAgent:
+    if strategy == "shallow":
+        return ShallowAgent(name, seed=seed, max_contributions=SHALLOW_MAX_CONTRIBUTIONS)
+    if strategy == "greedy":
+        return GreedyAgent(name, seed=seed)
+    if strategy == "counterfactual":
+        return CounterfactualAgent(name, seed=seed)
+    raise ValueError(f"unknown strategy: {strategy}")
+
+
+def create_exchange(config: EvaluationConfig, strategy_profile: str, seed: int) -> tuple[BipolarMultitree, MTAX]:
     universal_bm = generate_bm(config.graph_size, config.num_topics, seed, config.extra_edge_probability)
+    profile = tuple(strategy_profile.split(","))
     agents = []
     for index in range(config.num_agents):
         agent_seed = seed + index + 1
-        if strategy == "shallow":
-            agent = ShallowAgent(f"agent_{index}", seed=agent_seed, max_contributions=SHALLOW_MAX_CONTRIBUTIONS)
-        elif strategy == "greedy":
-            agent = GreedyAgent(f"agent_{index}", seed=agent_seed)
-        elif strategy == "counterfactual":
-            agent = CounterfactualAgent(f"agent_{index}", seed=agent_seed)
-        else:
-            raise ValueError(f"unknown strategy: {strategy}")
+        agent = create_agent(strategy=profile[index % len(profile)], name=f"agent_{index}", seed=agent_seed)
         agents.append(derive_private_agent(agent, universal_bm, config.qbaf_size, agent_seed, EVALUATION_SEMANTICS))
     agents = tuple(agents)
     exchange = MTAX(list(agents),
@@ -270,18 +289,18 @@ def average_ranking_agreement(agents: Sequence[MTAXAgent], topics: Sequence[str]
 if __name__ == "__main__":
     config = parse_args()
     cases = experiment_cases(config)
-    total = len(cases) * config.runs * len(STRATEGIES)
+    total = len(cases) * config.runs * len(config.strategies)
     done = 0
     with open(RESULT_PATH, "w", newline="") as file:
         writer = csv.writer(file)
         writer.writerow(result_csv_headers)
         for case in cases:
-            results: dict[str, list] = {name: [] for name in STRATEGIES}
-            agreements: dict[str, list[float]] = {name: [] for name in STRATEGIES}
+            results: dict[str, list] = {name: [] for name in config.strategies}
+            agreements: dict[str, list[float]] = {name: [] for name in config.strategies}
             for run_index in range(case.config.runs):
                 run_seed = case.config.seed + run_index * case.config.max_attempts
                 seed = find_unresolved_seed(case.config, run_seed)
-                for name in STRATEGIES:
+                for name in config.strategies:
                     universal_bm, exchange = create_exchange(case.config, name, seed)
                     assert not exchange.is_resolved(), "exchange is initially resolved"
                     if config.visualize:
@@ -294,7 +313,7 @@ if __name__ == "__main__":
                     done += 1
                     print(f"\rprogress {done}/{total} ({done / total:.0%})", end="", file=sys.stderr, flush=True)
 
-            for name in STRATEGIES:
+            for name in config.strategies:
                 strategy_results = results[name]
                 resolved = sum(result.resolved for result in strategy_results)
                 avg_rounds = sum(result.rounds for result in strategy_results) / len(strategy_results)
