@@ -1,19 +1,43 @@
 import argparse
+import csv
+import os
 import random
-from dataclasses import dataclass
+import sys
+from dataclasses import dataclass, replace
+from itertools import combinations
 from typing import Sequence
 
-from eval_agents import CounterfactualAgent, GreedyAgent
+from eval_agents import CounterfactualAgent, GreedyAgent, ShallowAgent
 from mtax.agent import MTAXAgent
 from mtax.bm import BipolarMultitree
 from mtax.config import ExchangeConfig, QBAFSemantics
+from mtax.disclosure_measure import kendall_tau_b, topic_ranking
 from mtax.mtax import MTAX
 from mtax.schema import Argument, Disclosure, Relation
-from mtax.ui import MTAXTerminalUI
 from qbaf import QBAFramework
 
 
+result_csv_headers = [
+    "experiment",
+    "parameter",
+    "value",
+    "strategy",
+    "runs",
+    "resolved",
+    "resolution_rate",
+    "avg_rounds",
+    "avg_contributions",
+    "avg_final_ranking_agreement",
+]
+
+
 EVALUATION_SEMANTICS = QBAFSemantics.DFQUAD
+RESULT_PATH = os.path.join(os.path.dirname(__file__), "results.csv")
+TOPIC_VALUES = (2, 4, 6, 8, 10, 12, 14)
+AGENT_VALUES = (2, 4, 6, 8, 10)
+DENSITY_VALUES = (0.0, 0.25, 0.5, 0.75)
+SHALLOW_MAX_CONTRIBUTIONS = 3
+STRATEGIES = ("shallow", "greedy", "counterfactual")
 
 
 @dataclass(frozen=True)
@@ -28,7 +52,15 @@ class EvaluationConfig:
     extra_edge_probability: float
     seed: int
     visualize: bool
-    ui: bool
+    experiment: str
+
+
+@dataclass(frozen=True)
+class ExperimentCase:
+    experiment: str
+    parameter: str
+    value: int | float
+    config: EvaluationConfig
 
 
 def positive_int(value: str) -> int:
@@ -55,14 +87,17 @@ def parse_args(argv: Sequence[str] | None = None) -> EvaluationConfig:
     parser.add_argument("--extra-edge-probability", type=probability, default=0.5)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--visualize", action="store_true")
-    parser.add_argument("--ui", action="store_true")
+    parser.add_argument("--experiment", choices=("base", "topics", "agents", "density", "all"), default="base")
     args = parser.parse_args(argv)
+    max_num_topics = max(args.num_topics, max(TOPIC_VALUES)) if args.experiment in ("topics", "all") else args.num_topics
     if args.qbaf_size > args.graph_size:
         parser.error("--qbaf-size must not exceed --graph-size")
-    if args.qbaf_size < args.num_topics:
-        parser.error("--qbaf-size must be at least --num-topics")
-    if args.num_topics >= args.graph_size:
-        parser.error("--num-topics must be smaller than --graph-size")
+    if args.qbaf_size < max_num_topics:
+        parser.error("--qbaf-size must be at least the maximum number of topics in the selected experiment")
+    if max_num_topics >= args.graph_size:
+        parser.error("--graph-size must be larger than the maximum number of topics in the selected experiment")
+    if args.num_topics < 2:
+        parser.error("--num-topics must be at least 2")
     if args.num_agents < 2:
         parser.error("--num-agents must be at least 2")
     return EvaluationConfig(
@@ -76,7 +111,7 @@ def parse_args(argv: Sequence[str] | None = None) -> EvaluationConfig:
         extra_edge_probability=args.extra_edge_probability,
         seed=args.seed,
         visualize=args.visualize,
-        ui=args.ui,
+        experiment=args.experiment,
     )
 
 
@@ -161,68 +196,126 @@ def visualize_qbaf(qbaf: QBAFramework, topics: set[str], output_path: str = "pri
     return graph.render(output_path, cleanup=True)
 
 
-def create_exchange(config: EvaluationConfig, agent_type: type[MTAXAgent], seed: int) -> tuple[BipolarMultitree, tuple[MTAXAgent, ...], MTAX]:
+def create_exchange(config: EvaluationConfig, strategy: str, seed: int) -> tuple[BipolarMultitree, MTAX]:
     public_bm = generate_bm(config.graph_size, config.num_topics, seed, config.extra_edge_probability)
-    agents = tuple(
-        derive_private_agent(agent_type(f"agent_{index}", seed=seed+index+1), # type: ignore
-                             public_bm,
-                             config.qbaf_size,
-                             seed+index+1,
-                             EVALUATION_SEMANTICS)
-        for index in range(config.num_agents)
-    )
-    exchange_agents = list(agents[:2])
-    exchange = MTAX(exchange_agents,
+    agents = []
+    for index in range(config.num_agents):
+        agent_seed = seed + index + 1
+        if strategy == "shallow":
+            agent = ShallowAgent(f"agent_{index}", seed=agent_seed, max_contributions=SHALLOW_MAX_CONTRIBUTIONS)
+        elif strategy == "greedy":
+            agent = GreedyAgent(f"agent_{index}", seed=agent_seed)
+        elif strategy == "counterfactual":
+            agent = CounterfactualAgent(f"agent_{index}", seed=agent_seed)
+        else:
+            raise ValueError(f"unknown strategy: {strategy}")
+        agents.append(derive_private_agent(agent, public_bm, config.qbaf_size, agent_seed, EVALUATION_SEMANTICS))
+    agents = tuple(agents)
+    exchange = MTAX(list(agents),
                     sorted(public_bm.topics),
                     ExchangeConfig(max_rounds=config.max_rounds, stop_when_resolved=True, resolution="top_r", semantics=EVALUATION_SEMANTICS))
-    return public_bm, agents, exchange
+    return public_bm, exchange
 
 
-def run_exchange(exchange: MTAX, show_ui: bool) -> None:
-    ui = MTAXTerminalUI(exchange)
+def run_exchange(exchange: MTAX) -> None:
     states = []
     for state in exchange:
         states.append(state)
-        if show_ui:
-            ui.render()
     assert states, "exchange did not run"
     assert states[-1].round_index <= exchange.config.max_rounds, "exchange exceeded max rounds"
 
 
+def experiment_cases(config: EvaluationConfig) -> list[ExperimentCase]:
+    cases = []
+    if config.experiment in ("base", "all"):
+        cases.append(ExperimentCase("base", "base", 0, config))
+    if config.experiment in ("topics", "all"):
+        cases.extend(
+            ExperimentCase("topics", "num_topics", value, replace(config, num_topics=value))
+            for value in TOPIC_VALUES
+        )
+    if config.experiment in ("agents", "all"):
+        cases.extend(
+            ExperimentCase("agents", "num_agents", value, replace(config, num_agents=value))
+            for value in AGENT_VALUES
+        )
+    if config.experiment in ("density", "all"):
+        cases.extend(
+            ExperimentCase("density", "extra_edge_probability", value, replace(config, extra_edge_probability=value))
+            for value in DENSITY_VALUES
+        )
+    return cases
+
+
+def find_unresolved_seed(config: EvaluationConfig, seed: int) -> int:
+    for attempt in range(config.max_attempts):
+        candidate_seed = seed + attempt
+        _, trial_exchange = create_exchange(config, "counterfactual", candidate_seed)
+        if not trial_exchange.is_resolved():
+            return candidate_seed
+    raise RuntimeError("could not generate an initially unresolved exchange")
+
+
+def average_ranking_agreement(agents: Sequence[MTAXAgent], topics: Sequence[str]) -> float:
+    if len(agents) < 2:
+        return 1.0
+    rankings = [topic_ranking(agent.private_qbaf, topics) for agent in agents]
+    agreements = [
+        kendall_tau_b(left, right)
+        for left, right in combinations(rankings, 2)
+    ]
+    return sum(agreements) / len(agreements)
+
+
 if __name__ == "__main__":
     config = parse_args()
-    strategies = (("greedy", GreedyAgent), ("counterfactual", CounterfactualAgent))
-    results: dict[str, list] = {name: [] for name, _ in strategies}
+    cases = experiment_cases(config)
+    total = len(cases) * config.runs * len(STRATEGIES)
+    done = 0
     last_public_bm = None
-    last_agents: tuple[MTAXAgent, ...] = ()
+    last_exchange = None
 
-    for run_index in range(config.runs):
-        seed = config.seed + run_index * config.max_attempts
-        for attempt in range(config.max_attempts):
-            _, _, trial_exchange = create_exchange(config, CounterfactualAgent, seed + attempt)
-            if not trial_exchange.is_resolved():
-                seed += attempt
-                break
-        else:
-            raise RuntimeError("could not generate an initially unresolved exchange")
+    with open(RESULT_PATH, "w", newline="") as file:
+        writer = csv.writer(file)
+        writer.writerow(result_csv_headers)
+        for case in cases:
+            results: dict[str, list] = {name: [] for name in STRATEGIES}
+            agreements: dict[str, list[float]] = {name: [] for name in STRATEGIES}
+            for run_index in range(case.config.runs):
+                run_seed = case.config.seed + run_index * case.config.max_attempts
+                seed = find_unresolved_seed(case.config, run_seed)
+                for name in STRATEGIES:
+                    public_bm, exchange = create_exchange(case.config, name, seed)
+                    assert not exchange.is_resolved(), "exchange is initially resolved"
+                    if config.visualize:
+                        last_public_bm = public_bm
+                        last_exchange = exchange
+                    run_exchange(exchange)
+                    results[name].append(exchange.result())
+                    agreements[name].append(average_ranking_agreement(exchange.agents, exchange.topics))
+                    done += 1
+                    print(f"\rprogress {done}/{total} ({done / total:.0%})", end="", file=sys.stderr, flush=True)
 
-        for name, agent_type in strategies:
-            public_bm, agents, exchange = create_exchange(config, agent_type, seed)
-            assert not exchange.is_resolved(), "exchange is initially resolved"
-            run_exchange(exchange, config.ui and config.runs == 1)
-            results[name].append(exchange.result())
-            last_public_bm = public_bm
-            last_agents = agents
-
-    print("strategy,runs,resolved,resolution_rate,avg_rounds,avg_contributions")
-    for name, _ in strategies:
-        strategy_results = results[name]
-        resolved = sum(result.resolved for result in strategy_results)
-        avg_rounds = sum(result.rounds for result in strategy_results) / len(strategy_results)
-        avg_contributions = sum(len(result.trace) for result in strategy_results) / len(strategy_results)
-        print(f"{name},{len(strategy_results)},{resolved},{resolved / len(strategy_results):.3f},{avg_rounds:.2f},{avg_contributions:.2f}")
-
-    if config.visualize and last_public_bm is not None:
+            for name in STRATEGIES:
+                strategy_results = results[name]
+                resolved = sum(result.resolved for result in strategy_results)
+                avg_rounds = sum(result.rounds for result in strategy_results) / len(strategy_results)
+                avg_contributions = sum(len(result.trace) for result in strategy_results) / len(strategy_results)
+                avg_agreement = sum(agreements[name]) / len(agreements[name])
+                writer.writerow([
+                    case.experiment,
+                    case.parameter,
+                    case.value,
+                    name,
+                    len(strategy_results),
+                    resolved,
+                    f"{resolved / len(strategy_results):.3f}",
+                    f"{avg_rounds:.2f}",
+                    f"{avg_contributions:.2f}",
+                    f"{avg_agreement:.3f}",
+                ])
+    print(file=sys.stderr)
+    if config.visualize and last_public_bm is not None and last_exchange is not None:
         print(visualize_bm(last_public_bm))
-        for agent in last_agents:
-            print(visualize_qbaf(agent.private_qbaf, set(agent.topics), agent.name))
+        for agent in last_exchange.agents:
+            print(visualize_qbaf(agent.private_qbaf, set(last_exchange.topics), agent.name))
