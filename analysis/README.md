@@ -13,7 +13,7 @@ python evaluate.py --num-topics 3 --num-agents 2 --runs 100 --max-rounds 100 --u
 - [x] Implement `CounterfactualAgent` class in `eval_agents.py`.
 - [x] Generate two-agent exchanges that are initially unresolved, with a maximum-attempt limit.
 - [x] Implement `GreedyAgent` class in `eval_agents.py`.
-- [ ] Implement `ShallowAgent` class in `eval_agents.py`.
+- [x] Implement `ShallowAgent` class in `eval_agents.py`.
 - [ ] Implement ranking-based agents class in `eval_agents.py`.
     - [ ] Implement Top-r cautious behaviour.
     - [ ] Implement Top-r defensive behaviour.

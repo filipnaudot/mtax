@@ -6,6 +6,7 @@ from mtax.disclosure_measure import ranking_disclosure_effects
 from mtax.schema import Argument, Disclosure, Pass
 
 
+
 class CounterfactualAgent(MTAXAgent):
     def __init__(self, name: str, seed: int, **kwargs) -> None:
         super().__init__(name, **kwargs)
@@ -26,6 +27,7 @@ class CounterfactualAgent(MTAXAgent):
         if relation.source not in public_bm.arguments:
             arguments = (self.private_arguments.get(relation.source, Argument(label=relation.source, text=relation.source)),)
         return Disclosure(arguments=arguments, relations=(relation,))
+
 
 
 class GreedyAgent(MTAXAgent):
@@ -69,3 +71,46 @@ class GreedyAgent(MTAXAgent):
         if relation.source not in public_bm.arguments:
             arguments = (self.private_arguments.get(relation.source, Argument(label=relation.source, text=relation.source)),)
         return Disclosure(arguments=arguments, relations=(relation,))
+
+
+
+class ShallowAgent(MTAXAgent):
+    def __init__(self, name: str, seed: int, max_contributions: int = 1, **kwargs) -> None:
+        super().__init__(name, **kwargs)
+        if max_contributions < 1:
+            raise ValueError("max_contributions must be at least 1")
+        self.random_generator = random.Random(seed)
+        self.max_contributions = max_contributions
+
+
+    def rate(self, argument: Argument) -> float:
+        return self.random_generator.random()
+
+
+    def contribute(self, public_bm: BipolarMultitree, violation_feedback: str | None = None) -> Disclosure | Pass:
+        available = [relation
+                     for relation, _ in self.available_relations(public_bm)
+                     if relation.target in public_bm.topics]
+        if not available:
+            return Pass(action="pass")
+        selected = []
+        hypothetical_qbaf = self.build_qbaf_from_bm(public_bm)
+        while len(selected) < self.max_contributions and available:
+            effects = ranking_disclosure_effects(hypothetical_qbaf, self.private_qbaf, self.topics, relations=available)
+            if not effects or effects[0][1] <= 0:
+                break
+            relation = effects[0][0]
+            selected.append(relation)
+            available.remove(relation)
+            if relation.source not in hypothetical_qbaf.arguments:
+                hypothetical_qbaf.add_argument(relation.source, self.private_qbaf.initial_strength(relation.source))
+            if relation.kind == "attack":
+                hypothetical_qbaf.add_attack_relation(relation.source, relation.target)
+            else:
+                hypothetical_qbaf.add_support_relation(relation.source, relation.target)
+        if not selected:
+            return Pass(action="pass")
+        argument_labels = tuple(dict.fromkeys(relation.source for relation in selected
+                                              if relation.source not in public_bm.arguments))
+        arguments = tuple(self.private_arguments.get(label, Argument(label=label, text=label)) for label in argument_labels)
+        return Disclosure(arguments=arguments, relations=tuple(selected))
