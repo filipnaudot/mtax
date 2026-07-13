@@ -3,13 +3,13 @@
 Generate BM/QBAF visualizations:
 
 ```bash
-python evaluate.py --visualize --graph-size 7 --num-topics 2 --qbaf-size 4 --runs 1 --max-rounds 1 --max-attempts 100
+python evaluate.py --visualize --graph-size 7 --num-topics 2 --qbaf-size 4 --runs 1 --max-rounds 1
 ```
 
 Run the full evaluation and write `results.csv`:
 
 ```bash
-python evaluate.py --experiment all --runs 100 --max-rounds 100 --max-attempts 100
+python evaluate.py --experiment all --runs 100
 ```
 
 - [x] Add configurable evaluation constants for graph size, private-QBAF size, semantics, and random seed.
