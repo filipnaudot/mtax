@@ -28,7 +28,13 @@ from mtax import MTAXAgent, ExchangeConfig, MTAX
 
 class MyAgent(MTAXAgent):
     def contribute(self, public_bm, violation_feedback=None):
+        """Logic for disclosing relations/arguments"""
         ...
+
+    def rate(self, argument):
+        """Logic for assigning an argument its initial strength"""
+        ...
+
 
 exchange = MTAX(
     agents=[MyAgent("machine"), MyAgent("human")],
