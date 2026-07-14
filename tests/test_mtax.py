@@ -4,8 +4,19 @@ from pydantic import ValidationError
 from mtax import InvalidAgentResponse, MTAXAgent, Argument, Disclosure, ExchangeConfig, MTAX, NEGATIVE, NEUTRAL, POSITIVE, Pass, Relation
 
 
+class NeutralAgent(MTAXAgent):
+    def rate(self, argument) -> float:
+        return 0.5
+
+    def contribute(self, public_bm, violation_feedback=None) -> Pass:
+        return Pass(action="pass")
+
+
 def test_mtax_step_and_result() -> None:
     class SimpleAgent(MTAXAgent):
+        def rate(self, argument) -> float:
+            return 0.5
+
         def contribute(self, public_bm, violation_feedback=None) -> Disclosure:
             self.public_bm = public_bm
             label = f"arg_{len(self.private_arguments)}"
@@ -40,6 +51,9 @@ def test_mtax_step_and_result() -> None:
 
 def test_resolved_termination_reason() -> None:
     class PassingAgent(MTAXAgent):
+        def rate(self, argument) -> float:
+            return 0.5
+
         def contribute(self, public_bm, violation_feedback=None) -> Pass:
             return Pass(action="pass")
 
@@ -57,6 +71,9 @@ def test_resolved_termination_reason() -> None:
 
 def test_active_exchange_has_no_termination_reason() -> None:
     class PassingAgent(MTAXAgent):
+        def rate(self, argument) -> float:
+            return 0.5
+
         def contribute(self, public_bm, violation_feedback=None) -> Pass:
             return Pass(action="pass")
 
@@ -75,13 +92,13 @@ def test_active_exchange_has_no_termination_reason() -> None:
 
 def test_top_r_resolution_requires_multiple_topics() -> None:
     with pytest.raises(ValueError, match="top_r requires at least 2 topics"):
-        MTAX(agents=[MTAXAgent("agent")], topics=["topic"], config=ExchangeConfig(resolution="top_r"))
+        MTAX(agents=[NeutralAgent("agent")], topics=["topic"], config=ExchangeConfig(resolution="top_r"))
 
 
 def test_agent_stance_uses_agent_specific_thresholds() -> None:
-    negative = MTAXAgent("negative", private_strengths={"topic": 0.3}, negative_below=0.4, positive_above=0.6)
-    neutral = MTAXAgent("neutral", private_strengths={"topic": 0.5}, negative_below=0.4, positive_above=0.6)
-    positive = MTAXAgent("positive", private_strengths={"topic": 0.7}, negative_below=0.4, positive_above=0.6)
+    negative = NeutralAgent("negative", private_strengths={"topic": 0.3}, negative_below=0.4, positive_above=0.6)
+    neutral = NeutralAgent("neutral", private_strengths={"topic": 0.5}, negative_below=0.4, positive_above=0.6)
+    positive = NeutralAgent("positive", private_strengths={"topic": 0.7}, negative_below=0.4, positive_above=0.6)
 
     MTAX(agents=[negative, neutral, positive], topics=["topic"])
 
@@ -95,10 +112,22 @@ def test_agent_rejects_invalid_stance_thresholds() -> None:
         MTAXAgent("agent", negative_below=0.6, positive_above=0.4)
 
 
+def test_mtax_requires_agents_to_implement_rate() -> None:
+    class MissingRateAgent(MTAXAgent):
+        def contribute(self, public_bm, violation_feedback=None) -> Pass:
+            return Pass(action="pass")
+        # Missing rate()
+    with pytest.raises(TypeError):
+        MTAX(agents=[MissingRateAgent("agent")], topics=["topic"])
+
+
 def test_contributor_mapping() -> None:
     relation = Relation(source="cost_is_high", target="recommend_x", kind="attack")
 
     class RelationAgent(MTAXAgent):
+        def rate(self, argument) -> float:
+            return 0.5
+
         def contribute(self, public_bm, violation_feedback=None) -> Disclosure:
             return Disclosure(
                 arguments=[Argument(label="cost_is_high", text="High cost is a reason against recommend_x.")], # type: ignore
@@ -138,22 +167,22 @@ def test_agents_ingest_and_preserve_private_state() -> None:
 
 
 def test_private_relations_require_known_arguments() -> None:
-    agent = MTAXAgent("agent", private_relations=[Relation(source="unknown", target="topic", kind="support")])
+    agent = NeutralAgent("agent", private_relations=[Relation(source="unknown", target="topic", kind="support")])
     with pytest.raises(ValueError, match="Private relation has unknown source 'unknown'"):
         MTAX(agents=[agent], topics=["topic"])
 
 
 def test_private_relations_accept_private_arguments_and_topics() -> None:
-    agent = MTAXAgent("agent",
-                      private_arguments={"reason": Argument(label="reason", text="A reason.")},
-                      private_relations=[Relation(source="reason", target="topic", kind="support")])
+    agent = NeutralAgent("agent",
+                         private_arguments={"reason": Argument(label="reason", text="A reason.")},
+                         private_relations=[Relation(source="reason", target="topic", kind="support")])
     MTAX(agents=[agent], topics=["topic"])
 
 
 def test_agent_available_relations() -> None:
     public_relation = Relation(source="public_reason", target="topic", kind="support")
     available_relation = Relation(source="private_reason", target="topic", kind="attack")
-    agent = MTAXAgent(
+    agent = NeutralAgent(
         "agent",
         private_arguments={
             "public_reason": Argument(label="public_reason", text="Public reason."),
@@ -169,8 +198,8 @@ def test_agent_available_relations() -> None:
 
 
 def test_agent_semantics_override_exchange_default() -> None:
-    default_agent = MTAXAgent("default")
-    override_agent = MTAXAgent("override", semantics="basic_model")
+    default_agent = NeutralAgent("default")
+    override_agent = NeutralAgent("override", semantics="basic_model")
     MTAX(agents=[default_agent, override_agent], topics=["topic"], config=ExchangeConfig(semantics="DFQuAD_model"))
     assert default_agent.private_qbaf.semantics == "DFQuAD_model"
     assert override_agent.private_qbaf.semantics == "basic_model"
@@ -180,7 +209,7 @@ def test_agent_semantics_override_exchange_default() -> None:
 
 
 def test_reused_agent_uses_current_exchange_default_semantics() -> None:
-    agent = MTAXAgent("agent")
+    agent = NeutralAgent("agent")
     MTAX(agents=[agent], topics=["topic_a"], config=ExchangeConfig(semantics="DFQuAD_model"))
     assert agent.private_qbaf.semantics == "DFQuAD_model"
     MTAX(agents=[agent], topics=["topic_b"], config=ExchangeConfig(semantics="basic_model"),)
@@ -233,6 +262,9 @@ def test_disclosures_are_immutable() -> None:
 
 def test_agent_can_disclose_multiple_arguments() -> None:
     class MultiArgumentAgent(MTAXAgent):
+        def rate(self, argument) -> float:
+            return 0.5
+
         def contribute(self, public_bm, violation_feedback=None) -> Disclosure:
             return Disclosure(
                 arguments=[
@@ -252,10 +284,16 @@ def test_agent_can_disclose_multiple_arguments() -> None:
 
 def test_agent_pass_and_rejection_are_recorded(capsys) -> None:
     class PassingAgent(MTAXAgent):
+        def rate(self, argument) -> float:
+            return 0.5
+
         def contribute(self, public_bm, violation_feedback=None) -> Pass:
             return Pass(action="pass", reason="Nothing useful to add.")
 
     class RejectedAgent(MTAXAgent):
+        def rate(self, argument) -> float:
+            return 0.5
+
         def contribute(self, public_bm, violation_feedback=None) -> Disclosure:
             return Disclosure(
                 arguments=[Argument(label="x", text="Argument x.")], # type: ignore
@@ -275,6 +313,9 @@ def test_invalid_agent_response_is_retried_with_feedback() -> None:
         def __init__(self) -> None:
             super().__init__("retrying")
             self.attempts = 0
+
+        def rate(self, argument) -> float:
+            return 0.5
 
         def contribute(self, public_bm, violation_feedback=None) -> Pass:
             self.attempts += 1

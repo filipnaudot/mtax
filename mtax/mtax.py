@@ -86,6 +86,7 @@ class MTAX:
                  config: ExchangeConfig | None = None,
                  turn_taking: TurnTaking | None = None) -> None:
         self.agents = agents
+        self._validate_agents()
         self.topics = topics
         self.config = config or ExchangeConfig()
         self.turn_taking = turn_taking or BasicTurnTaking()
@@ -95,6 +96,15 @@ class MTAX:
         for agent in self.agents:
             agent.initialize(topics, self.config.semantics)
         self.resolution = Resolution(self.agents, self.topics)
+
+
+    def _validate_agents(self) -> None:
+        from mtax.agent import MTAXAgent
+        for agent in self.agents:
+            if type(agent).contribute is MTAXAgent.contribute:
+                raise TypeError(f"{type(agent).__name__} must implement contribute()")
+            if type(agent).rate is MTAXAgent.rate:
+                raise TypeError(f"{type(agent).__name__} must implement rate()")
 
 
     def __iter__(self):

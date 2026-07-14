@@ -75,14 +75,12 @@ class MTAXAgent:
         )
 
 
-    def contribute(self,
-                   public_bm: BipolarMultitree,
-                   violation_feedback: str | None = None) -> Disclosure | Pass | None:
+    def contribute(self, public_bm: BipolarMultitree, violation_feedback: str | None = None) -> Disclosure | Pass | None:
         raise NotImplementedError
 
 
     def rate(self, argument: Argument) -> float:
-        return 0.5
+        raise NotImplementedError
 
 
     def stance(self, topic: str) -> int:
