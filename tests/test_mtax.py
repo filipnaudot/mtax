@@ -266,7 +266,7 @@ def test_agent_pass_and_rejection_are_recorded(capsys) -> None:
     assert exchange.state.agent_statuses[0].outcome == "passed"
     assert exchange.state.agent_statuses[0].detail == "Nothing useful to add."
     assert exchange.state.agent_statuses[1].outcome == "rejected"
-    assert "'x' → 'unknown'" in exchange.state.agent_statuses[1].detail # type: ignore
+    assert "'x' --> 'unknown'" in exchange.state.agent_statuses[1].detail # type: ignore
     assert "Available targets: 'topic'" in exchange.state.agent_statuses[1].detail # type: ignore
 
 
