@@ -112,7 +112,7 @@ class LLMAgent(MTAXAgent):
         }
         return (
             f"You are agent '{self.name}'. The turn order every round is "
-            f"{' → '.join(TURN_ORDER)}. Agents act sequentially. "
+            f"{' --> '.join(TURN_ORDER)}. Agents act sequentially. "
             "The knowledge below already includes accepted disclosures from agents who acted before you.\n\n"
             f"Topics (use these exact labels): {topics}\n\n"
             f"Known arguments:\n{args}\n\n"

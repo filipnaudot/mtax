@@ -33,11 +33,11 @@ class BipolarMultitree:
         if target not in self._outgoing:
             raise ValueError(f"'{target}' is not in the exchange and can therefore not be the relation target.")
         if self._reaches(start=target, destination=source):
-            raise ValueError(f"'{source}' → '{target}' would create a cycle in the public exchange graph which is not allowed.")
+            raise ValueError(f"'{source}' --> '{target}' would create a cycle in the public exchange graph which is not allowed.")
 
         conflicting_node = self._find_single_path_conflict(source, target)
         if conflicting_node is not None:
-            raise ValueError(f"'{source}' → '{target}' creates two paths to '{conflicting_node}'")
+            raise ValueError(f"'{source}' --> '{target}' creates two paths to '{conflicting_node}'")
         
         self._outgoing.setdefault(source, set()).add(target)
         self._incoming.setdefault(source, set())
@@ -49,14 +49,16 @@ class BipolarMultitree:
         pending = list(relations)
         candidate = deepcopy(self)
         while pending:
+            next_relation = None
             for relation in pending:
                 if relation.target in candidate.arguments:
+                    next_relation = relation
                     candidate.add_relation(relation.source, relation.target, relation.kind)
                     pending.remove(relation)
                     break
-            else:
+            if next_relation is None:
                 unresolved = ", ".join(
-                    f"'{relation.source}' → '{relation.target}'"
+                    f"'{relation.source}' --> '{relation.target}'"
                     for relation in pending
                 )
                 available_targets = ", ".join(
@@ -87,7 +89,7 @@ class BipolarMultitree:
         return False
 
 
-    def _bfs_forward(self, sources: set[str]) -> set[str]:
+    def _bfs(self, sources: set[str], edges: dict[str, set[str]]) -> set[str]:
         visited: set[str] = set()
         queue = deque(sources)
         while queue:
@@ -95,29 +97,17 @@ class BipolarMultitree:
             if node in visited:
                 continue
             visited.add(node)
-            queue.extend(self._outgoing.get(node, ()))
-        return visited
-
-
-    def _bfs_backward(self, sources: set[str]) -> set[str]:
-        visited: set[str] = set()
-        queue = deque(sources)
-        while queue:
-            node = queue.popleft()
-            if node in visited:
-                continue
-            visited.add(node)
-            queue.extend(self._incoming.get(node, ()))
+            queue.extend(edges.get(node, ()))
         return visited
 
 
     def _find_single_path_conflict(self, source: str, target: str) -> str | None:
         if source not in self._outgoing:
-            return None  # new argument, no ancestors — trivially safe
+            return None  # new argument, no ancestors —-> trivially safe
 
-        ancestors_of_source = self._bfs_backward({source})
-        descendants_of_target = self._bfs_forward({target})
-        reachable_from_source_ancestors = self._bfs_forward(ancestors_of_source)
+        ancestors_of_source = self._bfs({source}, self._incoming)
+        descendants_of_target = self._bfs({target}, self._outgoing)
+        reachable_from_source_ancestors = self._bfs(ancestors_of_source, self._outgoing)
 
         overlap = reachable_from_source_ancestors & descendants_of_target
         if not overlap:
