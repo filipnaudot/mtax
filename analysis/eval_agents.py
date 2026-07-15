@@ -88,26 +88,18 @@ class ShallowAgent(MTAXAgent):
 
 
     def contribute(self, public_bm: BipolarMultitree, violation_feedback: str | None = None) -> Disclosure | Pass:
-        available = [relation
-                     for relation, _ in self.available_relations(public_bm)
+        available = [(relation, strength)
+                     for relation, strength in self.available_relations(public_bm)
                      if relation.target in public_bm.topics]
         if not available:
             return Pass(action="pass")
-        selected = []
-        hypothetical_qbaf = self.build_qbaf_from_bm(public_bm)
-        while len(selected) < self.max_contributions and available:
-            effects = ranking_disclosure_effects(hypothetical_qbaf, self.private_qbaf, self.topics, relations=available)
-            if not effects or effects[0][1] <= 0:
-                break
-            relation = effects[0][0]
-            selected.append(relation)
-            available.remove(relation)
-            if relation.source not in hypothetical_qbaf.arguments:
-                hypothetical_qbaf.add_argument(relation.source, self.private_qbaf.initial_strength(relation.source))
-            if relation.kind == "attack":
-                hypothetical_qbaf.add_attack_relation(relation.source, relation.target)
-            else:
-                hypothetical_qbaf.add_support_relation(relation.source, relation.target)
+        effects = ranking_disclosure_effects(self.build_qbaf_from_bm(public_bm),
+                                             self.private_qbaf,
+                                             self.topics,
+                                             relations=[relation for relation, _ in available])
+        preserving_relations = {relation for relation, effect in effects if effect >= 0} # type: ignore
+        candidates = [(relation, strength) for relation, strength in available if relation in preserving_relations]
+        selected = [relation for relation, _ in sorted(candidates, key=lambda item: (-item[1], item[0].source, item[0].target, item[0].kind))[:self.max_contributions]]
         if not selected:
             return Pass(action="pass")
         argument_labels = tuple(dict.fromkeys(relation.source for relation in selected
