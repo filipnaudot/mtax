@@ -15,6 +15,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+analysis = [
+    "matplotlib>=3.11",
+]
 examples = [
     "autom8 @ git+https://github.com/cleairlabs/autom8.git",
     "python-dotenv>=1.0",
