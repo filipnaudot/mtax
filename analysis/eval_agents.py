@@ -5,15 +5,15 @@ from mtax.bm import BipolarMultitree
 from mtax.disclosure_measure import ranking_disclosure_effects
 from mtax.schema import Argument, Disclosure, Pass
 
-STATIC_RATE = False
-
 class CounterfactualAgent(MTAXAgent):
-    def __init__(self, name: str, seed: int, **kwargs) -> None:
+    def __init__(self, name: str, seed: int, rating_mode: str, **kwargs) -> None:
         super().__init__(name, **kwargs)
         self.random_generator = random.Random(seed)
+        self.rating_mode = rating_mode
 
     def rate(self, argument: Argument) -> float:
-        if STATIC_RATE: return 0.5
+        if self.rating_mode == "stable" and argument.label not in self.topics:
+            return random.Random(argument.label).random()
         return self.random_generator.random()
 
     def contribute(self, public_bm: BipolarMultitree, violation_feedback: str | None = None) -> Disclosure | Pass:
@@ -32,13 +32,15 @@ class CounterfactualAgent(MTAXAgent):
 
 
 class GreedyAgent(MTAXAgent):
-    def __init__(self, name: str, seed: int, **kwargs) -> None:
+    def __init__(self, name: str, seed: int, rating_mode: str, **kwargs) -> None:
         super().__init__(name, **kwargs)
         self.random_generator = random.Random(seed)
+        self.rating_mode = rating_mode
 
 
     def rate(self, argument: Argument) -> float:
-        if STATIC_RATE: return 0.5
+        if self.rating_mode == "stable" and argument.label not in self.topics:
+            return random.Random(argument.label).random()
         return self.random_generator.random()
 
 
@@ -77,16 +79,18 @@ class GreedyAgent(MTAXAgent):
 
 
 class ShallowAgent(MTAXAgent):
-    def __init__(self, name: str, seed: int, max_contributions: int = 1, **kwargs) -> None:
+    def __init__(self, name: str, seed: int, rating_mode: str, max_contributions: int = 1, **kwargs) -> None:
         super().__init__(name, **kwargs)
         if max_contributions < 1:
             raise ValueError("max_contributions must be at least 1")
         self.random_generator = random.Random(seed)
+        self.rating_mode = rating_mode
         self.max_contributions = max_contributions
 
 
     def rate(self, argument: Argument) -> float:
-        if STATIC_RATE: return 0.5
+        if self.rating_mode == "stable" and argument.label not in self.topics:
+            return random.Random(argument.label).random()
         return self.random_generator.random()
 
 

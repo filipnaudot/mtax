@@ -21,6 +21,7 @@ result_csv_headers = [
     "experiment",
     "parameter",
     "value",
+    "rating_mode",
     "strategies",
     "runs",
     "resolved",
@@ -33,6 +34,7 @@ influence_csv_headers = [
     "experiment",
     "parameter",
     "value",
+    "rating_mode",
     "strategy",
     "runs",
     "avg_influence",
@@ -64,6 +66,7 @@ class EvaluationConfig:
     seed: int
     visualize: bool
     experiment: str
+    rating_mode: str
     strategies: tuple[str, ...]
 
 
@@ -71,7 +74,7 @@ class EvaluationConfig:
 class ExperimentCase:
     experiment: str
     parameter: str
-    value: int | float
+    value: int | float | str
     config: EvaluationConfig
 
 
@@ -99,7 +102,7 @@ def parse_args(argv: Sequence[str] | None = None) -> EvaluationConfig:
     parser.add_argument("--extra-edge-probability", type=probability, default=0.5)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--visualize", action="store_true")
-    parser.add_argument("--experiment", choices=("base", "topics", "agents", "density", "all"), default="base")
+    parser.add_argument("--experiment", choices=("base", "rating", "topics", "agents", "density", "all"), default="base")
     parser.add_argument("--strategies", nargs="+", choices=STRATEGIES, default=STRATEGIES, help="Strategies assigned to agents in rotation.")
     args = parser.parse_args(argv)
     max_num_topics = max(args.num_topics, max(TOPIC_VALUES)) if args.experiment in ("topics", "all") else args.num_topics
@@ -127,6 +130,7 @@ def parse_args(argv: Sequence[str] | None = None) -> EvaluationConfig:
         seed=args.seed,
         visualize=args.visualize,
         experiment=args.experiment,
+        rating_mode="random",
         strategies=tuple(args.strategies),
     )
 
@@ -212,13 +216,13 @@ def visualize_qbaf(qbaf: QBAFramework, topics: set[str], output_path: str = "pri
     return graph.render(output_path, cleanup=True)
 
 
-def create_agent(strategy: str, name: str, seed: int) -> MTAXAgent:
+def create_agent(strategy: str, name: str, seed: int, rating_mode: str) -> MTAXAgent:
     if strategy == "shallow":
-        return ShallowAgent(name, seed=seed, max_contributions=SHALLOW_MAX_CONTRIBUTIONS)
+        return ShallowAgent(name, seed=seed, rating_mode=rating_mode, max_contributions=SHALLOW_MAX_CONTRIBUTIONS)
     if strategy == "greedy":
-        return GreedyAgent(name, seed=seed)
+        return GreedyAgent(name, seed=seed, rating_mode=rating_mode)
     if strategy == "counterfactual":
-        return CounterfactualAgent(name, seed=seed)
+        return CounterfactualAgent(name, seed=seed, rating_mode=rating_mode)
     raise ValueError(f"unknown strategy: {strategy}")
 
 
@@ -231,7 +235,7 @@ def create_exchange(config: EvaluationConfig, seed: int) -> tuple[BipolarMultitr
     agents = []
     for index in range(config.num_agents):
         agent_seed = seed + index + 1
-        agent = create_agent(strategy=agent_strategy(config, index), name=f"agent_{index}", seed=agent_seed)
+        agent = create_agent(strategy=agent_strategy(config, index), name=f"agent_{index}", seed=agent_seed, rating_mode=config.rating_mode)
         agents.append(derive_private_agent(agent, universal_bm, config.qbaf_size, agent_seed, EVALUATION_SEMANTICS))
     agents = tuple(agents)
     exchange = MTAX(list(agents),
@@ -249,25 +253,37 @@ def run_exchange(exchange: MTAX) -> None:
 
 
 def experiment_cases(config: EvaluationConfig) -> list[ExperimentCase]:
-    cases = []
-    if config.experiment in ("base", "all"):
-        cases.append(ExperimentCase("base", "base", 0, config))
+    cases: list[ExperimentCase] = []
+
+    def add_cases(experiment: str, parameter: str, values: Sequence[int | float], config_parameter: str | None = None) -> None:
+        for value in values:
+            for rating_mode in ("random", "stable"):
+                changes: dict[str, int | float | str] = {"rating_mode": rating_mode}
+                if config_parameter is not None:
+                    changes[config_parameter] = value
+                cases.append(ExperimentCase(
+                    experiment,
+                    parameter,
+                    value,
+                    replace(config, **changes),
+                ))
+
+    if config.experiment == "base":
+        add_cases("base", "base", (0,))
+    if config.experiment in ("rating", "all"):
+        for rating_mode in ("random", "stable"):
+            cases.append(ExperimentCase(
+                "rating",
+                "rating_mode",
+                rating_mode,
+                replace(config, rating_mode=rating_mode),
+            ))
     if config.experiment in ("topics", "all"):
-        cases.extend(
-            ExperimentCase("topics", "num_topics", value, replace(config, num_topics=value))
-            for value in TOPIC_VALUES
-        )
+        add_cases("topics", "num_topics", TOPIC_VALUES, "num_topics")
     if config.experiment in ("agents", "all"):
-        cases.extend(
-            ExperimentCase("agents", "num_agents", value, replace(config, num_agents=value))
-            for value in AGENT_VALUES
-            if value >= len(config.strategies)
-        )
+        add_cases("agents", "num_agents", tuple(value for value in AGENT_VALUES if value >= len(config.strategies)), "num_agents")
     if config.experiment in ("density", "all"):
-        cases.extend(
-            ExperimentCase("density", "extra_edge_probability", value, replace(config, extra_edge_probability=value))
-            for value in DENSITY_VALUES
-        )
+        add_cases("density", "extra_edge_probability", DENSITY_VALUES, "extra_edge_probability")
     return cases
 
 
@@ -368,6 +384,7 @@ if __name__ == "__main__":
                 case.experiment,
                 case.parameter,
                 case.value,
+                case.config.rating_mode,
                 strategy_label,
                 len(results),
                 resolved,
@@ -381,6 +398,7 @@ if __name__ == "__main__":
                     case.experiment,
                     case.parameter,
                     case.value,
+                    case.config.rating_mode,
                     strategy,
                     len(results),
                     f"{sum(influence_values) / len(influence_values):.3f}",
