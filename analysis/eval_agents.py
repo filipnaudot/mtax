@@ -5,7 +5,7 @@ from mtax.bm import BipolarMultitree
 from mtax.disclosure_measure import ranking_disclosure_effects
 from mtax.schema import Argument, Disclosure, Pass
 
-
+STATIC_RATE = False
 
 class CounterfactualAgent(MTAXAgent):
     def __init__(self, name: str, seed: int, **kwargs) -> None:
@@ -13,6 +13,7 @@ class CounterfactualAgent(MTAXAgent):
         self.random_generator = random.Random(seed)
 
     def rate(self, argument: Argument) -> float:
+        if STATIC_RATE: return 0.5
         return self.random_generator.random()
 
     def contribute(self, public_bm: BipolarMultitree, violation_feedback: str | None = None) -> Disclosure | Pass:
@@ -37,6 +38,7 @@ class GreedyAgent(MTAXAgent):
 
 
     def rate(self, argument: Argument) -> float:
+        if STATIC_RATE: return 0.5
         return self.random_generator.random()
 
 
@@ -84,6 +86,7 @@ class ShallowAgent(MTAXAgent):
 
 
     def rate(self, argument: Argument) -> float:
+        if STATIC_RATE: return 0.5
         return self.random_generator.random()
 
 

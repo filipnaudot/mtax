@@ -103,7 +103,7 @@ def draw_metric(rows: list[dict[str, str]], metric: str, title: str, fixed_min: 
     parts = [
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">',
         f'<rect width="{width}" height="{height}" fill="white"/>',
-        '<style>text{font-family:Arial,sans-serif;font-size:13px;font-weight:700;fill:#222}.title{font-size:22px;font-weight:700;text-anchor:middle}.panel{font-size:15px;font-weight:700}.axis{stroke:#999;stroke-width:1}.grid{stroke:#ddd;stroke-width:1}.line{fill:none;stroke-width:2.5}.dot{stroke:white;stroke-width:1}</style>',
+        '<style>text{font-family:Arial,sans-serif;font-size:13px;font-weight:700;fill:#222}.title{font-size:22px;font-weight:700;text-anchor:middle}.xlabel{font-size:15px;font-weight:700;text-anchor:middle}.axis{stroke:#999;stroke-width:1}.grid{stroke:#ddd;stroke-width:1}.line{fill:none;stroke-width:2.5}.dot{stroke:white;stroke-width:1}</style>',
         f'<text class="title" x="{width / 2:.1f}" y="32">{title}</text>',
     ]
 
@@ -119,7 +119,6 @@ def draw_metric(rows: list[dict[str, str]], metric: str, title: str, fixed_min: 
         x_min, x_max = min(x_values), max(x_values)
 
         parts.extend([
-            f'<text class="panel" x="{left}" y="{top - 16}">{experiment}</text>',
             f'<line class="axis" x1="{left}" y1="{top + plot_height}" x2="{left + plot_width}" y2="{top + plot_height}"/>',
             f'<line class="axis" x1="{left}" y1="{top}" x2="{left}" y2="{top + plot_height}"/>',
             f'<line class="grid" x1="{left}" y1="{top}" x2="{left + plot_width}" y2="{top}"/>',
@@ -132,6 +131,7 @@ def draw_metric(rows: list[dict[str, str]], metric: str, title: str, fixed_min: 
         for x_value in x_values:
             x = scale(x_value, x_min, x_max, left, left + plot_width)
             parts.append(f'<text x="{x - 10:.1f}" y="{top + plot_height + 22}">{x_value:g}</text>')
+        parts.append(f'<text class="xlabel" x="{left + plot_width / 2:.1f}" y="{top + plot_height + 54}">{experiment}</text>')
 
         metric_points = points(rows, experiment, metric)
         if not metric_points:
