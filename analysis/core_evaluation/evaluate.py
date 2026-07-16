@@ -5,7 +5,10 @@ import random
 import sys
 from dataclasses import dataclass, replace
 from itertools import combinations
+from pathlib import Path
 from typing import Sequence
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from eval_agents import CounterfactualAgent, GreedyAgent, ShallowAgent
 from mtax.agent import MTAXAgent
