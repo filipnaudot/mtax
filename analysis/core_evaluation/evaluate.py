@@ -4,7 +4,6 @@ import os
 import random
 import sys
 from dataclasses import dataclass, replace
-from itertools import combinations
 from pathlib import Path
 from typing import Sequence
 
@@ -14,7 +13,6 @@ from eval_agents import CounterfactualAgent, GreedyAgent, ShallowAgent
 from mtax.agent import MTAXAgent
 from mtax.bm import BipolarMultitree
 from mtax.config import ExchangeConfig, QBAFSemantics
-from mtax.disclosure_measure import kendall_tau_b, topic_ranking
 from mtax.mtax import MTAX
 from mtax.schema import Argument, Disclosure, Relation
 from qbaf import QBAFramework
@@ -29,25 +27,26 @@ result_csv_headers = [
     "runs",
     "resolved",
     "resolution_rate",
-    "avg_rounds",
-    "avg_final_ranking_agreement",
-]
-
-influence_csv_headers = [
-    "experiment",
-    "parameter",
-    "value",
-    "rating_mode",
-    "strategy",
-    "runs",
-    "avg_influence",
-    "avg_contributions",
+    "contribution_rate",
 ]
 
 
 EVALUATION_SEMANTICS = QBAFSemantics.DFQUAD
+SEMANTICS = (
+    QBAFSemantics.QUADRATIC_ENERGY,
+    QBAFSemantics.SQUARED_DFQUAD,
+    QBAFSemantics.EULER_BASED_TOP,
+    QBAFSemantics.EULER_BASED,
+    QBAFSemantics.DFQUAD,
+)
+SEMANTIC_LABELS = {
+    QBAFSemantics.QUADRATIC_ENERGY: "QE",
+    QBAFSemantics.SQUARED_DFQUAD: "SD-DFQuAD",
+    QBAFSemantics.EULER_BASED_TOP: "EBT",
+    QBAFSemantics.EULER_BASED: "EB",
+    QBAFSemantics.DFQUAD: "DFQuAD",
+}
 RESULT_PATH = os.path.join(os.path.dirname(__file__), "results.csv")
-INFLUENCE_PATH = os.path.join(os.path.dirname(__file__), "behavior_influence.csv")
 TOPIC_VALUES = (2, 4, 6, 8, 10, 12, 14)
 AGENT_VALUES = (3, 5, 7, 9, 11)
 DENSITY_VALUES = (0.0, 0.25, 0.5, 0.75)
@@ -71,6 +70,7 @@ class EvaluationConfig:
     experiment: str
     rating_mode: str
     strategies: tuple[str, ...]
+    semantics: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -105,7 +105,7 @@ def parse_args(argv: Sequence[str] | None = None) -> EvaluationConfig:
     parser.add_argument("--extra-edge-probability", type=probability, default=0.5)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--visualize", action="store_true")
-    parser.add_argument("--experiment", choices=("base", "rating", "topics", "agents", "density", "all"), default="base")
+    parser.add_argument("--experiment", choices=("base", "rating", "topics", "agents", "density", "semantics", "behaviour", "all"), default="base")
     parser.add_argument("--strategies", nargs="+", choices=STRATEGIES, default=STRATEGIES, help="Strategies assigned to agents in rotation.")
     args = parser.parse_args(argv)
     max_num_topics = max(args.num_topics, max(TOPIC_VALUES)) if args.experiment in ("topics", "all") else args.num_topics
@@ -121,6 +121,8 @@ def parse_args(argv: Sequence[str] | None = None) -> EvaluationConfig:
         parser.error("--num-agents must be at least 2")
     if args.num_agents < len(args.strategies):
         parser.error("--num-agents must be at least the number of strategies")
+    if args.experiment in ("behaviour", "all") and args.num_agents < len(STRATEGIES):
+        parser.error("--num-agents must be at least 3 for the behaviour experiment")
     return EvaluationConfig(
         graph_size=args.graph_size,
         num_topics=args.num_topics,
@@ -135,6 +137,7 @@ def parse_args(argv: Sequence[str] | None = None) -> EvaluationConfig:
         experiment=args.experiment,
         rating_mode="random",
         strategies=tuple(args.strategies),
+        semantics=(EVALUATION_SEMANTICS,),
     )
 
 
@@ -219,13 +222,13 @@ def visualize_qbaf(qbaf: QBAFramework, topics: set[str], output_path: str = "pri
     return graph.render(output_path, cleanup=True)
 
 
-def create_agent(strategy: str, name: str, seed: int, rating_mode: str) -> MTAXAgent:
+def create_agent(strategy: str, name: str, seed: int, rating_mode: str, semantics: str) -> MTAXAgent:
     if strategy == "shallow":
-        return ShallowAgent(name, seed=seed, rating_mode=rating_mode, max_contributions=SHALLOW_MAX_CONTRIBUTIONS)
+        return ShallowAgent(name, seed=seed, rating_mode=rating_mode, semantics=semantics, max_contributions=SHALLOW_MAX_CONTRIBUTIONS)
     if strategy == "greedy":
-        return GreedyAgent(name, seed=seed, rating_mode=rating_mode)
+        return GreedyAgent(name, seed=seed, rating_mode=rating_mode, semantics=semantics)
     if strategy == "counterfactual":
-        return CounterfactualAgent(name, seed=seed, rating_mode=rating_mode)
+        return CounterfactualAgent(name, seed=seed, rating_mode=rating_mode, semantics=semantics)
     raise ValueError(f"unknown strategy: {strategy}")
 
 
@@ -233,12 +236,22 @@ def agent_strategy(config: EvaluationConfig, agent_index: int) -> str:
     return config.strategies[agent_index % len(config.strategies)]
 
 
+def agent_semantics(config: EvaluationConfig, agent_index: int) -> str:
+    return config.semantics[agent_index % len(config.semantics)]
+
+
 def create_exchange(config: EvaluationConfig, seed: int) -> tuple[BipolarMultitree, MTAX]:
     universal_bm = generate_bm(config.graph_size, config.num_topics, seed, config.extra_edge_probability)
     agents = []
     for index in range(config.num_agents):
         agent_seed = seed + index + 1
-        agent = create_agent(strategy=agent_strategy(config, index), name=f"agent_{index}", seed=agent_seed, rating_mode=config.rating_mode)
+        agent = create_agent(
+            strategy=agent_strategy(config, index),
+            name=f"agent_{index}",
+            seed=agent_seed,
+            rating_mode=config.rating_mode,
+            semantics=agent_semantics(config, index),
+        )
         agents.append(derive_private_agent(agent, universal_bm, config.qbaf_size, agent_seed, EVALUATION_SEMANTICS))
     agents = tuple(agents)
     exchange = MTAX(list(agents),
@@ -287,6 +300,34 @@ def experiment_cases(config: EvaluationConfig) -> list[ExperimentCase]:
         add_cases("agents", "num_agents", tuple(value for value in AGENT_VALUES if value >= len(config.strategies)), "num_agents")
     if config.experiment in ("density", "all"):
         add_cases("density", "extra_edge_probability", DENSITY_VALUES, "extra_edge_probability")
+    if config.experiment in ("semantics", "all"):
+        for semantics in SEMANTICS:
+            cases.append(ExperimentCase(
+                "semantics",
+                "semantics",
+                SEMANTIC_LABELS[semantics],
+                replace(config, rating_mode="stable", semantics=(semantics,)),
+            ))
+        cases.append(ExperimentCase(
+            "semantics",
+            "semantics",
+            "Mixed",
+            replace(config, rating_mode="stable", semantics=SEMANTICS),
+        ))
+    if config.experiment in ("behaviour", "all"):
+        for strategy in STRATEGIES:
+            cases.append(ExperimentCase(
+                "behaviour",
+                "strategies",
+                strategy,
+                replace(config, rating_mode="stable", strategies=(strategy,)),
+            ))
+        cases.append(ExperimentCase(
+            "behaviour",
+            "strategies",
+            "Mixed",
+            replace(config, rating_mode="stable", strategies=STRATEGIES),
+        ))
     return cases
 
 
@@ -299,90 +340,38 @@ def find_unresolved_seed(config: EvaluationConfig, seed: int) -> int:
     raise RuntimeError("could not generate an initially unresolved exchange")
 
 
-def average_ranking_agreement(agents: Sequence[MTAXAgent], topics: Sequence[str]) -> float:
-    if len(agents) < 2:
-        return 1.0
-    rankings = [topic_ranking(agent.private_qbaf, topics) for agent in agents]
-    agreements = [
-        kendall_tau_b(left, right)
-        for left, right in combinations(rankings, 2)
-    ]
-    return sum(agreements) / len(agreements)
-
-
-def behavior_influence(config: EvaluationConfig, exchange: MTAX, initial_rankings: dict[str, dict[str, float]]) -> dict[str, list[float]]:
-    influence = {strategy: [] for strategy in config.strategies}
-    final_rankings = {
-        agent.name: topic_ranking(agent.private_qbaf, exchange.topics)
-        for agent in exchange.agents
-    }
-    for source_index, source_agent in enumerate(exchange.agents):
-        strategy = agent_strategy(config, source_index)
-        source_initial = initial_rankings[source_agent.name]
-        for target_agent in exchange.agents:
-            if target_agent.name == source_agent.name:
-                continue
-            target_initial = initial_rankings[target_agent.name]
-            target_final = final_rankings[target_agent.name]
-            before = kendall_tau_b(target_initial, source_initial)
-            after = kendall_tau_b(target_final, source_initial)
-            influence[strategy].append(after - before)
-    return influence
-
-
-def behavior_contributions(config: EvaluationConfig, exchange: MTAX) -> dict[str, int]:
-    agent_strategies = {
-        agent.name: agent_strategy(config, index)
-        for index, agent in enumerate(exchange.agents)
-    }
-    counts = {strategy: 0 for strategy in config.strategies}
-    for contribution in exchange.state.trace:
-        counts[agent_strategies[contribution.agent]] += 1
-    return counts
+def contribution_count(exchange: MTAX) -> int:
+    return len(exchange.state.trace)
 
 
 if __name__ == "__main__":
     config = parse_args()
     cases = experiment_cases(config)
-    strategy_label = " ".join(config.strategies)
     total = len(cases) * config.runs
     done = 0
-    with open(RESULT_PATH, "w", newline="") as result_file, open(INFLUENCE_PATH, "w", newline="") as influence_file:
+    with open(RESULT_PATH, "w", newline="") as result_file:
         result_writer = csv.writer(result_file)
-        influence_writer = csv.writer(influence_file)
         result_writer.writerow(result_csv_headers)
-        influence_writer.writerow(influence_csv_headers)
         for case in cases:
+            strategy_label = " ".join(case.config.strategies)
             results = []
-            agreements: list[float] = []
-            influence_by_strategy = {strategy: [] for strategy in config.strategies}
-            contributions_by_strategy = {strategy: 0 for strategy in config.strategies}
+            contribution_counts: list[int] = []
             for run_index in range(case.config.runs):
                 run_seed = case.config.seed + run_index * case.config.max_attempts
                 seed = find_unresolved_seed(case.config, run_seed)
                 universal_bm, exchange = create_exchange(case.config, seed)
                 assert not exchange.is_resolved(), "exchange is initially resolved"
-                initial_rankings = {
-                    agent.name: topic_ranking(agent.private_qbaf, exchange.topics)
-                    for agent in exchange.agents
-                }
                 if config.visualize:
                     print(visualize_bm(universal_bm))
                     for agent in exchange.agents:
                         print(visualize_qbaf(agent.private_qbaf, set(exchange.topics), agent.name))
                 run_exchange(exchange)
                 results.append(exchange.result())
-                agreements.append(average_ranking_agreement(exchange.agents, exchange.topics))
-                for strategy, values in behavior_influence(case.config, exchange, initial_rankings).items():
-                    influence_by_strategy[strategy].extend(values)
-                for strategy, count in behavior_contributions(case.config, exchange).items():
-                    contributions_by_strategy[strategy] += count
+                contribution_counts.append(contribution_count(exchange))
                 done += 1
                 print(f"\rprogress {done}/{total} ({done / total:.0%})", end="", file=sys.stderr, flush=True)
 
             resolved = sum(result.resolved for result in results)
-            avg_rounds = sum(result.rounds for result in results) / len(results)
-            avg_agreement = sum(agreements) / len(agreements)
             result_writer.writerow([
                 case.experiment,
                 case.parameter,
@@ -392,19 +381,6 @@ if __name__ == "__main__":
                 len(results),
                 resolved,
                 f"{resolved / len(results):.3f}",
-                f"{avg_rounds:.2f}",
-                f"{avg_agreement:.3f}",
+                f"{sum(contribution_counts) / len(contribution_counts):.2f}",
             ])
-            for strategy in config.strategies:
-                influence_values = influence_by_strategy[strategy]
-                influence_writer.writerow([
-                    case.experiment,
-                    case.parameter,
-                    case.value,
-                    case.config.rating_mode,
-                    strategy,
-                    len(results),
-                    f"{sum(influence_values) / len(influence_values):.3f}",
-                    f"{contributions_by_strategy[strategy] / len(results):.2f}",
-                ])
     print(file=sys.stderr)

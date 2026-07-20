@@ -6,13 +6,29 @@ Run the full evaluation from this directory:
 python evaluate.py --experiment all --runs 100 --strategies greedy shallow counterfactual
 ```
 
-Each setting is evaluated with random and stable non-topic ratings.
-Results are written to `results.csv` and `behavior_influence.csv`.
+The rating, topic, agent, and density settings are evaluated with random and stable non-topic ratings.
+Results are written to `results.csv`.
+
+To compare semantics, run:
+
+```bash
+python evaluate.py --experiment semantics --runs 100 --strategies greedy shallow counterfactual
+```
+
+This uses stable initial strengths and evaluates each supported non-basic semantic homogeneously, plus a Mixed case that cycles semantics across agents.
+
+To compare agent behaviours, run:
+
+```bash
+python evaluate.py --experiment behaviour --runs 100
+```
+
+This uses stable initial strengths and evaluates each behaviour homogeneously, plus a Mixed case that cycles behaviours across agents.
 
 Generate the PDF figures:
 
 ```bash
-python result_plots.py
+python plots.py
 ```
 
 For a single BM/QBAF visualization:
