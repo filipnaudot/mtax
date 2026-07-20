@@ -47,7 +47,39 @@ def draw_resolution_rate(rows: list[dict[str, str]]):
             if points:
                 x, y = zip(*points)
                 axis.plot(x, y, color=RATING_MODE_COLORS[mode], marker="o", label=mode)
-        axis.set(xlabel=experiment, xticks=x_values, ylim=(0.0, 1.0))
+        axis.set(
+            xlabel=experiment if experiment == "agents" else f"{experiment} (3 agents)",
+            xticks=x_values,
+            ylim=(0.0, 1.0),
+        )
+        axis.xaxis.label.set(fontsize=12, fontweight="bold")
+        axis.grid(axis="y", color="#ddd")
+        if set(rating_modes(experiment_rows)) == {"random", "stable"}:
+            axis.legend()
+    return figure
+
+
+def draw_ranking_distance(rows: list[dict[str, str]]):
+    figure, axes = plt.subplots(1, len(EXPERIMENTS), figsize=(16, 3.5), layout="constrained")
+    figure.suptitle("Average pairwise ranking distance betwen agents by topics, agents, and density", fontsize=16, fontweight="bold")
+    for axis, experiment in zip(axes, EXPERIMENTS):
+        experiment_rows = [row for row in rows if row["experiment"] == experiment]
+        if not experiment_rows:
+            axis.set_visible(False)
+            continue
+        x_values = sorted({float(row["value"]) for row in experiment_rows})
+        for mode in rating_modes(experiment_rows):
+            points = sorted((float(row["value"]), float(row["ranking_distance"])) for row in experiment_rows if rating_mode(row) == mode)
+            if points:
+                x, y = zip(*points)
+                axis.plot(x, y, color=RATING_MODE_COLORS[mode], marker="o", label=mode)
+        axis.set(
+            xlabel=experiment if experiment == "agents" else f"{experiment} (3 agents)",
+            ylabel="Average pairwise ranking distance",
+            xticks=x_values,
+            ylim=(0.0, 1.0),
+        )
+        axis.xaxis.label.set(fontsize=12, fontweight="bold")
         axis.grid(axis="y", color="#ddd")
         if set(rating_modes(experiment_rows)) == {"random", "stable"}:
             axis.legend()
@@ -62,12 +94,12 @@ def draw_categorical_resolution_rate(rows: list[dict[str, str]], experiment: str
     axis.plot(range(len(labels)), values, color=RATING_MODE_COLORS["stable"], marker="o")
     axis.set(
         title=title,
-        xlabel=experiment,
         xticks=range(len(labels)),
         xticklabels=labels,
         ylim=(0.0, 1.0),
     )
-    axis.tick_params(axis="x", rotation=45)
+    axis.tick_params(axis="x", labelsize=9, rotation=45)
+    plt.setp(axis.get_xticklabels(), fontweight="bold")
     axis.grid(axis="y", color="#ddd")
     return figure
 
@@ -81,8 +113,9 @@ def main() -> None:
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     rows = load_rows(INPUT_PATH)
     save(draw_resolution_rate(rows), "resolution_rate")
-    save(draw_categorical_resolution_rate(rows, "semantics", "Average resolution rate by semantics"), "semantics_resolution_rate")
-    save(draw_categorical_resolution_rate(rows, "behaviour", "Average resolution rate by behaviour"), "behaviour_resolution_rate")
+    save(draw_ranking_distance(rows), "ranking_distance")
+    save(draw_categorical_resolution_rate(rows, "semantics", "Average resolution rate by semantics (3 agents)"), "semantics_resolution_rate")
+    save(draw_categorical_resolution_rate(rows, "behaviour", "Average resolution rate by behaviour (3 agents)"), "behaviour_resolution_rate")
     print(f"wrote plots to {OUTPUT_DIR}")
 
 

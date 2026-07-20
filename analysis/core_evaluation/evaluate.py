@@ -4,6 +4,7 @@ import os
 import random
 import sys
 from dataclasses import dataclass, replace
+from itertools import combinations
 from pathlib import Path
 from typing import Sequence
 
@@ -13,6 +14,7 @@ from eval_agents import CounterfactualAgent, GreedyAgent, ShallowAgent
 from mtax.agent import MTAXAgent
 from mtax.bm import BipolarMultitree
 from mtax.config import ExchangeConfig, QBAFSemantics
+from mtax.disclosure_measure import kendall_tau_b, topic_ranking
 from mtax.mtax import MTAX
 from mtax.schema import Argument, Disclosure, Relation
 from qbaf import QBAFramework
@@ -27,6 +29,7 @@ result_csv_headers = [
     "runs",
     "resolved",
     "resolution_rate",
+    "ranking_distance",
     "contribution_rate",
 ]
 
@@ -344,6 +347,12 @@ def contribution_count(exchange: MTAX) -> int:
     return len(exchange.state.trace)
 
 
+def mean_pairwise_ranking_distance(exchange: MTAX) -> float:
+    rankings = [topic_ranking(agent.private_qbaf, exchange.topics) for agent in exchange.agents]
+    distances = [((1 - kendall_tau_b(first, second)) / 2) for first, second in combinations(rankings, 2)]
+    return sum(distances) / len(distances) if distances else 0.0
+
+
 if __name__ == "__main__":
     config = parse_args()
     cases = experiment_cases(config)
@@ -356,6 +365,7 @@ if __name__ == "__main__":
             strategy_label = " ".join(case.config.strategies)
             results = []
             contribution_counts: list[int] = []
+            ranking_distances: list[float] = []
             for run_index in range(case.config.runs):
                 run_seed = case.config.seed + run_index * case.config.max_attempts
                 seed = find_unresolved_seed(case.config, run_seed)
@@ -368,6 +378,7 @@ if __name__ == "__main__":
                 run_exchange(exchange)
                 results.append(exchange.result())
                 contribution_counts.append(contribution_count(exchange))
+                ranking_distances.append(mean_pairwise_ranking_distance(exchange))
                 done += 1
                 print(f"\rprogress {done}/{total} ({done / total:.0%})", end="", file=sys.stderr, flush=True)
 
@@ -381,6 +392,7 @@ if __name__ == "__main__":
                 len(results),
                 resolved,
                 f"{resolved / len(results):.3f}",
+                f"{sum(ranking_distances) / len(ranking_distances):.3f}",
                 f"{sum(contribution_counts) / len(contribution_counts):.2f}",
             ])
     print(file=sys.stderr)
