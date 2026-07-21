@@ -1,9 +1,12 @@
+# type: ignore
 import random
+from collections import deque
+from copy import deepcopy
 
 from mtax.agent import MTAXAgent
 from mtax.bm import BipolarMultitree
-from mtax.disclosure_measure import ranking_disclosure_effects
-from mtax.schema import Argument, Disclosure, Pass
+from mtax.disclosure_measure import kendall_tau_b, ranking_disclosure_effects, topic_ranking
+from mtax.schema import Argument, Disclosure, Pass, Relation
 
 class CounterfactualAgent(MTAXAgent):
     def __init__(self, name: str, seed: int, rating_mode: str, **kwargs) -> None:
@@ -31,6 +34,79 @@ class CounterfactualAgent(MTAXAgent):
 
 
 
+class DisclosureMaximizerAgent(MTAXAgent):
+    def __init__(self, name: str, seed: int, rating_mode: str, max_contributions: int = 1, **kwargs) -> None:
+        super().__init__(name, **kwargs)
+        if max_contributions < 1:
+            raise ValueError("max_contributions must be at least 1")
+        self.random_generator = random.Random(seed)
+        self.rating_mode = rating_mode
+        self.max_contributions = max_contributions
+
+    def rate(self, argument: Argument) -> float:
+        if self.rating_mode == "stable" and argument.label not in self.topics:
+            return random.Random(argument.label).random()
+        return self.random_generator.random()
+
+    def _branch(self, public_bm: BipolarMultitree, root: Relation, relations: set[Relation]) -> list[Relation]:
+        candidate_bm = deepcopy(public_bm)
+        try:
+            candidate_bm.add_relation(root.source, root.target, root.kind)
+        except ValueError:
+            return []
+        branch = [root]
+        pending = relations - {root}
+        queue = deque([root.source])
+        visited = set()
+        while queue and len(branch) < self.max_contributions:
+            target = queue.popleft()
+            if target in visited:
+                continue
+            visited.add(target)
+            for relation in sorted(pending, key=lambda relation: (relation.source, relation.target, relation.kind)):
+                if relation.target != target:
+                    continue
+                try:
+                    candidate_bm.add_relation(relation.source, relation.target, relation.kind)
+                except ValueError:
+                    continue
+                pending.remove(relation)
+                branch.append(relation)
+                queue.append(relation.source)
+                if len(branch) == self.max_contributions:
+                    break
+        return branch
+
+    def contribute(self, public_bm: BipolarMultitree, violation_feedback: str | None = None) -> Disclosure | Pass:
+        relations = {relation for relation in self.private_relations
+                     if (relation.source, relation.target, relation.kind) not in public_bm.relations}
+        roots = sorted((relation for relation in relations if relation.target in public_bm.topics),
+                       key=lambda relation: (relation.source, relation.target, relation.kind))
+        public_qbaf = self.build_qbaf_from_bm(public_bm)
+        private_ranking = topic_ranking(self.private_qbaf, self.topics)
+        before = kendall_tau_b(topic_ranking(public_qbaf, self.topics), private_ranking)
+        selected: list[Relation] = []
+        best_effect = 0.0
+        for root in roots:
+            branch = self._branch(public_bm, root, relations)
+            if not branch:
+                continue
+            candidate_bm = deepcopy(public_bm)
+            candidate_bm.add_relations(branch)
+            candidate_qbaf = self.build_qbaf_from_bm(candidate_bm)
+            effect = kendall_tau_b(topic_ranking(candidate_qbaf, self.topics), private_ranking) - before
+            if effect >= 0 and (not selected or effect > best_effect):
+                selected = branch
+                best_effect = effect
+        if not selected:
+            return Pass(action="pass")
+        argument_labels = tuple(dict.fromkeys(relation.source for relation in selected
+                                              if relation.source not in public_bm.arguments))
+        arguments = tuple(self.private_arguments.get(label, Argument(label=label, text=label)) for label in argument_labels)
+        return Disclosure(arguments=arguments, relations=tuple(selected))
+
+
+
 class GreedyAgent(MTAXAgent):
     def __init__(self, name: str, seed: int, rating_mode: str, **kwargs) -> None:
         super().__init__(name, **kwargs)
@@ -52,7 +128,7 @@ class GreedyAgent(MTAXAgent):
                                              self.private_qbaf,
                                              self.topics,
                                              relations=[relation for relation, _ in available])
-        preserving_relations = {relation for relation, effect in effects if effect >= 0} # type: ignore
+        preserving_relations = {relation for relation, effect in effects if effect >= 0}
         candidates = [(relation, strength) for relation, strength in available if relation in preserving_relations]
         if not candidates:
             return Pass(action="pass")
@@ -104,7 +180,7 @@ class ShallowAgent(MTAXAgent):
                                              self.private_qbaf,
                                              self.topics,
                                              relations=[relation for relation, _ in available])
-        preserving_relations = {relation for relation, effect in effects if effect >= 0} # type: ignore
+        preserving_relations = {relation for relation, effect in effects if effect >= 0}
         candidates = [(relation, strength) for relation, strength in available if relation in preserving_relations]
         selected = [relation for relation, _ in sorted(candidates, key=lambda item: (-item[1], item[0].source, item[0].target, item[0].kind))[:self.max_contributions]]
         if not selected:
