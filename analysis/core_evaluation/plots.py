@@ -28,6 +28,16 @@ def rating_modes(rows: list[dict[str, str]]) -> list[str]:
     return [mode for mode in RATING_MODE_COLORS if any(rating_mode(row) == mode for row in rows)]
 
 
+def display_label(label: str) -> str:
+    name, separator, bound = label.rpartition("_")
+    if separator and bound.isdigit():
+        if name == "shallow":
+            return f"shallow ({bound})"
+        if name == "disclosure_maximizer":
+            return f"disc. max ({bound})"
+    return label
+
+
 def draw_resolution_rate(rows: list[dict[str, str]]):
     figure, axes = plt.subplots(1, len(EXPERIMENTS), figsize=(16, 3.5), layout="constrained")
     figure.suptitle("Average resolution rate by topics, agents, and density", fontsize=16, fontweight="bold")
@@ -88,7 +98,7 @@ def draw_ranking_distance(rows: list[dict[str, str]]):
 
 def draw_categorical_resolution_rate(rows: list[dict[str, str]], experiment: str, title: str):
     experiment_rows = [row for row in rows if row["experiment"] == experiment]
-    labels = [row["value"] for row in experiment_rows]
+    labels = [display_label(row["value"]) for row in experiment_rows]
     values = [float(row["resolution_rate"]) for row in experiment_rows]
     figure, axis = plt.subplots(figsize=(6, 3.5), layout="constrained")
     axis.plot(range(len(labels)), values, color=RATING_MODE_COLORS["stable"], marker="o")
@@ -114,8 +124,8 @@ def main() -> None:
     rows = load_rows(INPUT_PATH)
     save(draw_resolution_rate(rows), "resolution_rate")
     save(draw_ranking_distance(rows), "ranking_distance")
-    save(draw_categorical_resolution_rate(rows, "semantics", "Average resolution rate by semantics (3 agents)"), "semantics_resolution_rate")
-    save(draw_categorical_resolution_rate(rows, "behaviour", "Average resolution rate by behaviour (3 agents)"), "behaviour_resolution_rate")
+    save(draw_categorical_resolution_rate(rows, "semantics", "Average resolution rate by semantics (5 agents)"), "semantics_resolution_rate")
+    save(draw_categorical_resolution_rate(rows, "behaviour", "Average resolution rate by behaviour (4 agents)"), "behaviour_resolution_rate")
     print(f"wrote plots to {OUTPUT_DIR}")
 
 

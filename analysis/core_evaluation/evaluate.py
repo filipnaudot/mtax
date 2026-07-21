@@ -10,7 +10,7 @@ from typing import Sequence
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from eval_agents import CounterfactualAgent, GreedyAgent, ShallowAgent
+from eval_agents import CounterfactualAgent, DisclosureMaximizerAgent, GreedyAgent, ShallowAgent
 from mtax.agent import MTAXAgent
 from mtax.bm import BipolarMultitree
 from mtax.config import ExchangeConfig, QBAFSemantics
@@ -25,7 +25,7 @@ result_csv_headers = [
     "parameter",
     "value",
     "rating_mode",
-    "strategies",
+    "behaviours",
     "runs",
     "resolved",
     "resolution_rate",
@@ -53,9 +53,11 @@ RESULT_PATH = os.path.join(os.path.dirname(__file__), "results.csv")
 TOPIC_VALUES = (2, 4, 6, 8, 10, 12, 14)
 AGENT_VALUES = (3, 5, 7, 9, 11)
 DENSITY_VALUES = (0.0, 0.25, 0.5, 0.75)
-SHALLOW_MAX_CONTRIBUTIONS = 3
-STRATEGIES = ("shallow", "greedy", "counterfactual")
-STRATEGY_CHOICES = frozenset(STRATEGIES)
+SHALLOW_MAX_CONTRIBUTIONS = 5
+DISCLOSURE_MAXIMIZER_CONTRIBUTIONS = 5
+SHALLOW_BEHAVIOUR = f"shallow_{SHALLOW_MAX_CONTRIBUTIONS}"
+DISCLOSURE_MAXIMIZER_BEHAVIOUR = f"disclosure_maximizer_{DISCLOSURE_MAXIMIZER_CONTRIBUTIONS}"
+BEHAVIOURS = (SHALLOW_BEHAVIOUR, "greedy", "counterfactual", DISCLOSURE_MAXIMIZER_BEHAVIOUR)
 
 
 @dataclass(frozen=True)
@@ -72,7 +74,7 @@ class EvaluationConfig:
     visualize: bool
     experiment: str
     rating_mode: str
-    strategies: tuple[str, ...]
+    behaviours: tuple[str, ...]
     semantics: tuple[str, ...]
 
 
@@ -109,7 +111,6 @@ def parse_args(argv: Sequence[str] | None = None) -> EvaluationConfig:
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--visualize", action="store_true")
     parser.add_argument("--experiment", choices=("base", "rating", "topics", "agents", "density", "semantics", "behaviour", "all"), default="base")
-    parser.add_argument("--strategies", nargs="+", choices=STRATEGIES, default=STRATEGIES, help="Strategies assigned to agents in rotation.")
     args = parser.parse_args(argv)
     max_num_topics = max(args.num_topics, max(TOPIC_VALUES)) if args.experiment in ("topics", "all") else args.num_topics
     if args.qbaf_size > args.graph_size:
@@ -122,10 +123,6 @@ def parse_args(argv: Sequence[str] | None = None) -> EvaluationConfig:
         parser.error("--num-topics must be at least 2")
     if args.num_agents < 2:
         parser.error("--num-agents must be at least 2")
-    if args.num_agents < len(args.strategies):
-        parser.error("--num-agents must be at least the number of strategies")
-    if args.experiment in ("behaviour", "all") and args.num_agents < len(STRATEGIES):
-        parser.error("--num-agents must be at least 3 for the behaviour experiment")
     return EvaluationConfig(
         graph_size=args.graph_size,
         num_topics=args.num_topics,
@@ -139,7 +136,7 @@ def parse_args(argv: Sequence[str] | None = None) -> EvaluationConfig:
         visualize=args.visualize,
         experiment=args.experiment,
         rating_mode="random",
-        strategies=tuple(args.strategies),
+        behaviours=("greedy",),
         semantics=(EVALUATION_SEMANTICS,),
     )
 
@@ -226,17 +223,19 @@ def visualize_qbaf(qbaf: QBAFramework, topics: set[str], output_path: str = "pri
 
 
 def create_agent(strategy: str, name: str, seed: int, rating_mode: str, semantics: str) -> MTAXAgent:
-    if strategy == "shallow":
+    if strategy == SHALLOW_BEHAVIOUR:
         return ShallowAgent(name, seed=seed, rating_mode=rating_mode, semantics=semantics, max_contributions=SHALLOW_MAX_CONTRIBUTIONS)
     if strategy == "greedy":
         return GreedyAgent(name, seed=seed, rating_mode=rating_mode, semantics=semantics)
     if strategy == "counterfactual":
         return CounterfactualAgent(name, seed=seed, rating_mode=rating_mode, semantics=semantics)
+    if strategy == DISCLOSURE_MAXIMIZER_BEHAVIOUR:
+        return DisclosureMaximizerAgent(name, seed=seed, rating_mode=rating_mode, semantics=semantics, max_contributions=DISCLOSURE_MAXIMIZER_CONTRIBUTIONS)
     raise ValueError(f"unknown strategy: {strategy}")
 
 
-def agent_strategy(config: EvaluationConfig, agent_index: int) -> str:
-    return config.strategies[agent_index % len(config.strategies)]
+def agent_behaviour(config: EvaluationConfig, agent_index: int) -> str:
+    return config.behaviours[agent_index % len(config.behaviours)]
 
 
 def agent_semantics(config: EvaluationConfig, agent_index: int) -> str:
@@ -249,7 +248,7 @@ def create_exchange(config: EvaluationConfig, seed: int) -> tuple[BipolarMultitr
     for index in range(config.num_agents):
         agent_seed = seed + index + 1
         agent = create_agent(
-            strategy=agent_strategy(config, index),
+            strategy=agent_behaviour(config, index),
             name=f"agent_{index}",
             seed=agent_seed,
             rating_mode=config.rating_mode,
@@ -300,7 +299,7 @@ def experiment_cases(config: EvaluationConfig) -> list[ExperimentCase]:
     if config.experiment in ("topics", "all"):
         add_cases("topics", "num_topics", TOPIC_VALUES, "num_topics")
     if config.experiment in ("agents", "all"):
-        add_cases("agents", "num_agents", tuple(value for value in AGENT_VALUES if value >= len(config.strategies)), "num_agents")
+        add_cases("agents", "num_agents", AGENT_VALUES, "num_agents")
     if config.experiment in ("density", "all"):
         add_cases("density", "extra_edge_probability", DENSITY_VALUES, "extra_edge_probability")
     if config.experiment in ("semantics", "all"):
@@ -309,27 +308,27 @@ def experiment_cases(config: EvaluationConfig) -> list[ExperimentCase]:
                 "semantics",
                 "semantics",
                 SEMANTIC_LABELS[semantics],
-                replace(config, rating_mode="stable", semantics=(semantics,)),
+                replace(config, rating_mode="stable", num_agents=len(SEMANTICS), semantics=(semantics,)),
             ))
         cases.append(ExperimentCase(
             "semantics",
             "semantics",
             "Mixed",
-            replace(config, rating_mode="stable", semantics=SEMANTICS),
+            replace(config, rating_mode="stable", num_agents=len(SEMANTICS), semantics=SEMANTICS),
         ))
     if config.experiment in ("behaviour", "all"):
-        for strategy in STRATEGIES:
+        for behaviour in BEHAVIOURS:
             cases.append(ExperimentCase(
                 "behaviour",
-                "strategies",
-                strategy,
-                replace(config, rating_mode="stable", strategies=(strategy,)),
+                "behaviours",
+                behaviour,
+                replace(config, rating_mode="stable", num_agents=len(BEHAVIOURS), behaviours=(behaviour,)),
             ))
         cases.append(ExperimentCase(
             "behaviour",
-            "strategies",
+            "behaviours",
             "Mixed",
-            replace(config, rating_mode="stable", strategies=STRATEGIES),
+            replace(config, rating_mode="stable", num_agents=len(BEHAVIOURS), behaviours=BEHAVIOURS),
         ))
     return cases
 
@@ -362,7 +361,7 @@ if __name__ == "__main__":
         result_writer = csv.writer(result_file)
         result_writer.writerow(result_csv_headers)
         for case in cases:
-            strategy_label = " ".join(case.config.strategies)
+            behaviour_label = " ".join(case.config.behaviours)
             results = []
             contribution_counts: list[int] = []
             ranking_distances: list[float] = []
@@ -388,7 +387,7 @@ if __name__ == "__main__":
                 case.parameter,
                 case.value,
                 case.config.rating_mode,
-                strategy_label,
+                behaviour_label,
                 len(results),
                 resolved,
                 f"{resolved / len(results):.3f}",
