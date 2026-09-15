@@ -10,12 +10,12 @@ from typing import Sequence
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from eval_agents import CounterfactualAgent, DisclosureMaximizerAgent, GreedyAgent, ShallowAgent
+from eval_agents import CounterfactualAgent, GreedyAgent, RandomAgent, ShallowAgent
 from mtax.agent import MTAXAgent
 from mtax.bm import BipolarMultitree
 from mtax.config import ExchangeConfig, QBAFSemantics
 from mtax.disclosure_measure import kendall_tau_b, topic_ranking
-from mtax.mtax import MTAX
+from mtax.mtax import AgentStatus, MTAX
 from mtax.schema import Argument, Disclosure, Relation
 from qbaf import QBAFramework
 
@@ -31,6 +31,8 @@ result_csv_headers = [
     "resolution_rate",
     "ranking_distance",
     "contribution_rate",
+    "pass_rate",
+    "persuasion_rate",
 ]
 
 
@@ -54,10 +56,8 @@ TOPIC_VALUES = (2, 4, 6, 8, 10, 12, 14)
 AGENT_VALUES = (3, 5, 7, 9, 11)
 DENSITY_VALUES = (0.0, 0.25, 0.5, 0.75)
 SHALLOW_MAX_CONTRIBUTIONS = 5
-DISCLOSURE_MAXIMIZER_CONTRIBUTIONS = 5
 SHALLOW_BEHAVIOUR = f"shallow_{SHALLOW_MAX_CONTRIBUTIONS}"
-DISCLOSURE_MAXIMIZER_BEHAVIOUR = f"disclosure_maximizer_{DISCLOSURE_MAXIMIZER_CONTRIBUTIONS}"
-BEHAVIOURS = (SHALLOW_BEHAVIOUR, "greedy", "counterfactual", DISCLOSURE_MAXIMIZER_BEHAVIOUR)
+BEHAVIOURS = (SHALLOW_BEHAVIOUR, "greedy", "counterfactual", "random")
 
 
 @dataclass(frozen=True)
@@ -103,7 +103,7 @@ def parse_args(argv: Sequence[str] | None = None) -> EvaluationConfig:
     parser.add_argument("--oracle-graph-size", dest="graph_size", type=positive_int, default=30)
     parser.add_argument("--num-topics", type=positive_int, default=3)
     parser.add_argument("--qbaf-size", type=positive_int, default=15)
-    parser.add_argument("--num-agents", type=positive_int, default=3)
+    parser.add_argument("--num-agents", type=positive_int, default=4)
     parser.add_argument("--max-rounds", type=positive_int, default=100)
     parser.add_argument("--max-attempts", type=positive_int, default=100)
     parser.add_argument("--runs", type=positive_int, default=1)
@@ -229,8 +229,8 @@ def create_agent(strategy: str, name: str, seed: int, rating_mode: str, semantic
         return GreedyAgent(name, seed=seed, rating_mode=rating_mode, semantics=semantics)
     if strategy == "counterfactual":
         return CounterfactualAgent(name, seed=seed, rating_mode=rating_mode, semantics=semantics)
-    if strategy == DISCLOSURE_MAXIMIZER_BEHAVIOUR:
-        return DisclosureMaximizerAgent(name, seed=seed, rating_mode=rating_mode, semantics=semantics, max_contributions=DISCLOSURE_MAXIMIZER_CONTRIBUTIONS)
+    if strategy == "random":
+        return RandomAgent(name, seed=seed, rating_mode=rating_mode, semantics=semantics)
     raise ValueError(f"unknown strategy: {strategy}")
 
 
@@ -258,16 +258,19 @@ def create_exchange(config: EvaluationConfig, seed: int) -> tuple[BipolarMultitr
     agents = tuple(agents)
     exchange = MTAX(list(agents),
                     sorted(universal_bm.topics),
-                    ExchangeConfig(max_rounds=config.max_rounds, stop_when_resolved=True, resolution="top_r", semantics=EVALUATION_SEMANTICS))
+                    ExchangeConfig(max_rounds=config.max_rounds, stop_when_resolved=True, resolution="top_r", semantics=EVALUATION_SEMANTICS, max_consecutive_all_pass_rounds=2)) # type: ignore
     return universal_bm, exchange
 
 
-def run_exchange(exchange: MTAX) -> None:
+def run_exchange(exchange: MTAX) -> list[AgentStatus]:
     states = []
+    statuses = []
     for state in exchange:
         states.append(state)
+        statuses.extend(state.agent_statuses)
     assert states, "exchange did not run"
     assert states[-1].round_index <= exchange.config.max_rounds, "exchange exceeded max rounds"
+    return statuses
 
 
 def experiment_cases(config: EvaluationConfig) -> list[ExperimentCase]:
@@ -322,13 +325,13 @@ def experiment_cases(config: EvaluationConfig) -> list[ExperimentCase]:
                 "behaviour",
                 "behaviours",
                 behaviour,
-                replace(config, rating_mode="stable", num_agents=len(BEHAVIOURS), behaviours=(behaviour,)),
+                replace(config, rating_mode="random", num_agents=len(BEHAVIOURS), behaviours=(behaviour,)),
             ))
         cases.append(ExperimentCase(
             "behaviour",
             "behaviours",
             "Mixed",
-            replace(config, rating_mode="stable", num_agents=len(BEHAVIOURS), behaviours=BEHAVIOURS),
+            replace(config, rating_mode="random", num_agents=len(BEHAVIOURS), behaviours=BEHAVIOURS),
         ))
     return cases
 
@@ -357,32 +360,50 @@ if __name__ == "__main__":
     cases = experiment_cases(config)
     total = len(cases) * config.runs
     done = 0
+    behaviour_persuasion_counts = {behaviour: 0 for behaviour in BEHAVIOURS}
+    behaviour_persuasion_resolved = 0
     with open(RESULT_PATH, "w", newline="") as result_file:
         result_writer = csv.writer(result_file)
         result_writer.writerow(result_csv_headers)
+        output_rows = []
         for case in cases:
             behaviour_label = " ".join(case.config.behaviours)
             results = []
             contribution_counts: list[int] = []
             ranking_distances: list[float] = []
+            pass_count = 0
+            turn_count = 0
             for run_index in range(case.config.runs):
                 run_seed = case.config.seed + run_index * case.config.max_attempts
                 seed = find_unresolved_seed(case.config, run_seed)
                 universal_bm, exchange = create_exchange(case.config, seed)
                 assert not exchange.is_resolved(), "exchange is initially resolved"
+                initial_rankings = {
+                    agent.name: exchange.resolution.top_r_ranking(agent, exchange.config.top_r)
+                    for agent in exchange.agents
+                }
                 if config.visualize:
                     print(visualize_bm(universal_bm))
                     for agent in exchange.agents:
                         print(visualize_qbaf(agent.private_qbaf, set(exchange.topics), agent.name))
-                run_exchange(exchange)
-                results.append(exchange.result())
+                statuses = run_exchange(exchange)
+                pass_count += sum(status.outcome == "passed" for status in statuses)
+                turn_count += len(statuses)
+                result = exchange.result()
+                results.append(result)
                 contribution_counts.append(contribution_count(exchange))
                 ranking_distances.append(mean_pairwise_ranking_distance(exchange))
+                if case.experiment == "behaviour" and case.value == "Mixed" and result.resolved:
+                    final_ranking = exchange.resolution.top_r_ranking(exchange.agents[0], exchange.config.top_r)
+                    behaviour_persuasion_resolved += 1
+                    for agent, behaviour in zip(exchange.agents, case.config.behaviours):
+                        if initial_rankings[agent.name] == final_ranking:
+                            behaviour_persuasion_counts[behaviour] += 1
                 done += 1
                 print(f"\rprogress {done}/{total} ({done / total:.0%})", end="", file=sys.stderr, flush=True)
 
             resolved = sum(result.resolved for result in results)
-            result_writer.writerow([
+            output_rows.append([
                 case.experiment,
                 case.parameter,
                 case.value,
@@ -393,5 +414,16 @@ if __name__ == "__main__":
                 f"{resolved / len(results):.3f}",
                 f"{sum(ranking_distances) / len(ranking_distances):.3f}",
                 f"{sum(contribution_counts) / len(contribution_counts):.2f}",
+                f"{pass_count / turn_count:.3f}" if turn_count else "0.000",
+                "0.000",
             ])
+        if behaviour_persuasion_resolved:
+            persuasion_rates = {
+                behaviour: f"{count / behaviour_persuasion_resolved:.3f}"
+                for behaviour, count in behaviour_persuasion_counts.items()
+            }
+            for row in output_rows:
+                if row[0] == "behaviour" and row[2] in persuasion_rates:
+                    row[-1] = persuasion_rates[row[2]]
+        result_writer.writerows(output_rows)
     print(file=sys.stderr)
