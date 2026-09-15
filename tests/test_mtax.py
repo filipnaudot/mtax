@@ -7,7 +7,6 @@ from mtax import InvalidAgentResponse, MTAXAgent, Argument, Disclosure, Exchange
 class NeutralAgent(MTAXAgent):
     def rate(self, argument) -> float:
         return 0.5
-
     def contribute(self, public_bm, violation_feedback=None) -> Pass:
         return Pass(action="pass")
 
@@ -90,9 +89,30 @@ def test_active_exchange_has_no_termination_reason() -> None:
     assert exchange.result().termination_reason is None
 
 
+def test_exchange_stops_after_consecutive_all_pass_rounds() -> None:
+    class PassingAgent(MTAXAgent):
+        def rate(self, argument) -> float:
+            return 0.5
+        def contribute(self, public_bm, violation_feedback=None) -> Pass:
+            return Pass(action="pass")
+    exchange = MTAX(agents=[PassingAgent("first"), PassingAgent("second")],
+                    topics=["topic"],
+                    config=ExchangeConfig(max_rounds=5, stop_when_resolved=False, max_consecutive_all_pass_rounds=2))
+    list(exchange)
+    assert exchange.state.round_index == 2
+    assert exchange.result().termination_reason == "all_passed"
+
+
 def test_top_r_resolution_requires_multiple_topics() -> None:
     with pytest.raises(ValueError, match="top_r requires at least 2 topics"):
         MTAX(agents=[NeutralAgent("agent")], topics=["topic"], config=ExchangeConfig(resolution="top_r"))
+
+
+def test_top_r_ranking_preserves_ties_at_cutoff() -> None:
+    agent = NeutralAgent("agent", private_strengths={"first": 0.9, "second": 0.7, "third": 0.7, "fourth": 0.2})
+    exchange = MTAX(agents=[agent], topics=["first", "second", "third", "fourth"],
+                    config=ExchangeConfig(resolution="top_r", top_r=2))
+    assert exchange.resolution.top_r_ranking(agent, 2) == (frozenset({"first"}), frozenset({"second", "third"}))
 
 
 def test_agent_stance_uses_agent_specific_thresholds() -> None:
