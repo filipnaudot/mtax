@@ -1,5 +1,6 @@
 import csv
 import os
+from decimal import Decimal, ROUND_HALF_UP
 
 import matplotlib
 
@@ -13,6 +14,10 @@ OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "result_plots")
 
 EXPERIMENTS = ("topics", "agents", "density")
 RATING_MODE_COLORS = {"random": "#999", "stable": "#222"}
+
+
+def rounded_value(value: float) -> str:
+    return f"{Decimal(str(value)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP):.2f}"
 
 
 def load_rows(path: str) -> list[dict[str, str]]:
@@ -33,8 +38,6 @@ def display_label(label: str) -> str:
     if separator and bound.isdigit():
         if name == "shallow":
             return f"shallow ({bound})"
-        if name == "disclosure_maximizer":
-            return f"disc. max ({bound})"
     return label
 
 
@@ -96,17 +99,19 @@ def draw_ranking_distance(rows: list[dict[str, str]]):
     return figure
 
 
-def draw_categorical_resolution_rate(rows: list[dict[str, str]], experiment: str, title: str):
-    experiment_rows = [row for row in rows if row["experiment"] == experiment]
+def draw_categorical_metric(rows: list[dict[str, str]], experiment: str, metric: str, title: str, exclude_values: tuple[str, ...] = ()):
+    experiment_rows = [row for row in rows if row["experiment"] == experiment and row["value"] not in exclude_values]
     labels = [display_label(row["value"]) for row in experiment_rows]
-    values = [float(row["resolution_rate"]) for row in experiment_rows]
+    values = [float(row[metric]) for row in experiment_rows]
     figure, axis = plt.subplots(figsize=(6, 3.5), layout="constrained")
-    axis.plot(range(len(labels)), values, color=RATING_MODE_COLORS["stable"], marker="o")
+    bars = axis.bar(range(len(labels)), values, color=RATING_MODE_COLORS["stable"])
+    for bar, value in zip(bars, values):
+        axis.text(bar.get_x() + bar.get_width() / 2, value, rounded_value(value), ha="center", va="bottom", fontsize=9)
     axis.set(
         title=title,
         xticks=range(len(labels)),
         xticklabels=labels,
-        ylim=(0.0, 1.0),
+        ylim=(0.0, 1.05),
     )
     axis.tick_params(axis="x", labelsize=9, rotation=45)
     plt.setp(axis.get_xticklabels(), fontweight="bold")
@@ -124,8 +129,10 @@ def main() -> None:
     rows = load_rows(INPUT_PATH)
     save(draw_resolution_rate(rows), "resolution_rate")
     save(draw_ranking_distance(rows), "ranking_distance")
-    save(draw_categorical_resolution_rate(rows, "semantics", "Average resolution rate by semantics (5 agents)"), "semantics_resolution_rate")
-    save(draw_categorical_resolution_rate(rows, "behaviour", "Average resolution rate by behaviour (4 agents)"), "behaviour_resolution_rate")
+    save(draw_categorical_metric(rows, "semantics", "resolution_rate", "Average resolution rate by semantics (5 agents)"), "semantics_resolution_rate")
+    save(draw_categorical_metric(rows, "behaviour", "resolution_rate", "Average resolution rate by behaviour (4 agents)"), "behaviour_resolution_rate")
+    save(draw_categorical_metric(rows, "behaviour", "pass_rate", "Average pass rate by behaviour (4 agents)"), "behaviour_pass_rate")
+    save(draw_categorical_metric(rows, "behaviour", "persuasion_rate", "Average persuasion rate by behaviour (mixed exchanges)", ("Mixed",)), "behaviour_persuasion_rate")
     print(f"wrote plots to {OUTPUT_DIR}")
 
 
