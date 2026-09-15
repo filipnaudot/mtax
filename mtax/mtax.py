@@ -57,6 +57,7 @@ class DialogueState:
     publish_errors: list[PublishError] = field(default_factory=list)
     agent_statuses: list[AgentStatus] = field(default_factory=list)
     round_index: int = 0
+    consecutive_all_pass_rounds: int = 0
 
     def __post_init__(self) -> None:
         self.public_bm = BipolarMultitree(topics=set(self.topics))
@@ -66,7 +67,7 @@ class DialogueState:
 class ExchangeResult:
     topics: list[str]
     resolved: bool
-    termination_reason: Literal["resolved", "max_rounds"] | None
+    termination_reason: Literal["resolved", "all_passed", "max_rounds"] | None
     rounds: int
     final_state: DialogueState
     trace: list[Contribution]
@@ -90,6 +91,8 @@ class MTAX:
         self.topics = topics
         self.config = config or ExchangeConfig()
         self.turn_taking = turn_taking or BasicTurnTaking()
+        if self.config.max_consecutive_all_pass_rounds is not None and self.config.max_consecutive_all_pass_rounds < 1:
+            raise ValueError("max_consecutive_all_pass_rounds must be at least 1")
         if self.config.resolution == "top_r" and (len(self.topics) < 2 or not 1 <= self.config.top_r <= len(self.topics)):
             raise ValueError("top_r requires at least 2 topics and must not exceed the number of topics")
         self._state = DialogueState(topics=topics)
@@ -111,6 +114,8 @@ class MTAX:
         while self._state.round_index < self.config.max_rounds:
             if (self._state.round_index > 0) and self.config.stop_when_resolved and self.is_resolved():
                 break
+            if self._all_pass_limit_reached():
+                break
             yield self.step()
 
 
@@ -120,7 +125,7 @@ class MTAX:
 
 
     def step(self) -> DialogueState:
-        if self._state.round_index >= self.config.max_rounds:
+        if self._state.round_index >= self.config.max_rounds or self._all_pass_limit_reached():
             return self._state
         self._state.publish_errors = []
         self._state.agent_statuses = []
@@ -160,8 +165,17 @@ class MTAX:
                     self._record_rejection(agent.name, errors, self.config.max_retries + 1)
                 else:
                     self._state.agent_statuses.append(AgentStatus(agent.name, "no_response", invalid_response, self.config.max_retries + 1))
+        if len(self._state.agent_statuses) == len(self.agents) and all(status.outcome == "passed" for status in self._state.agent_statuses):
+            self._state.consecutive_all_pass_rounds += 1
+        else:
+            self._state.consecutive_all_pass_rounds = 0
         self._state.round_index += 1
         return self._state
+
+
+    def _all_pass_limit_reached(self) -> bool:
+        limit = self.config.max_consecutive_all_pass_rounds
+        return limit is not None and self._state.consecutive_all_pass_rounds >= limit
 
 
     def _record_rejection(self, agent: str, errors: list[PublishError], attempts: int) -> None:
@@ -238,6 +252,8 @@ class MTAX:
         termination_reason = None
         if resolved and self.config.stop_when_resolved:
             termination_reason = "resolved"
+        elif self._all_pass_limit_reached():
+            termination_reason = "all_passed"
         elif self._state.round_index >= self.config.max_rounds:
             termination_reason = "max_rounds"
         return ExchangeResult(

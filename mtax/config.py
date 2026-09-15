@@ -20,3 +20,4 @@ class ExchangeConfig:
     resolution: Literal["stance", "top_r"] = "stance"
     top_r: int = 2
     semantics: str = QBAFSemantics.DFQUAD
+    max_consecutive_all_pass_rounds: int | None = None
