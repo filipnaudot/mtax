@@ -22,10 +22,8 @@ class Resolution:
     def stance(self) -> bool:
         if not self.agents:
             return False
-        return all(
-            len({agent.stance(topic) for agent in self.agents}) == 1
-            for topic in self.topics
-        )
+        return all(len({agent.stance(topic) for agent in self.agents}) == 1
+                   for topic in self.topics)
     
 
     def top_r_ranking(self, agent: MTAXAgent, r: int) -> tuple[frozenset[str], ...]:
