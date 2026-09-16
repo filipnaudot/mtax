@@ -15,8 +15,17 @@ Generate the PDF figures:
 python plots.py
 ```
 
-For a single BM/QBAF visualization:
 
+
+## Paper results
+These are the commands used to produce the results presented in the paper.
+
+The benchmark script is invoked with the following command:
 ```bash
-python evaluate.py --visualize --oracle-graph-size 7 --num-topics 2 --qbaf-size 4 --runs 1 --max-rounds 1
+python evaluate.py --experiment all --runs 200 --qbaf-size 20 --num-agents 4 --max-rounds 200
+```
+
+The visuals are then generated with:
+```bash
+python plots.py
 ```

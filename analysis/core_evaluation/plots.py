@@ -61,7 +61,7 @@ def draw_resolution_rate(rows: list[dict[str, str]]):
                 x, y = zip(*points)
                 axis.plot(x, y, color=RATING_MODE_COLORS[mode], marker="o", label=mode)
         axis.set(
-            xlabel=experiment if experiment == "agents" else f"{experiment} (3 agents)",
+            xlabel=experiment if experiment == "agents" else f"{experiment} (4 agents)",
             xticks=x_values,
             ylim=(0.0, 1.0),
         )
@@ -87,7 +87,7 @@ def draw_ranking_distance(rows: list[dict[str, str]]):
                 x, y = zip(*points)
                 axis.plot(x, y, color=RATING_MODE_COLORS[mode], marker="o", label=mode)
         axis.set(
-            xlabel=experiment if experiment == "agents" else f"{experiment} (3 agents)",
+            xlabel=experiment if experiment == "agents" else f"{experiment} (4 agents)",
             ylabel="Average pairwise ranking distance",
             xticks=x_values,
             ylim=(0.0, 1.0),

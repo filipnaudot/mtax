@@ -57,19 +57,13 @@ class BipolarMultitree:
                     pending.remove(relation)
                     break
             if next_relation is None:
-                unresolved = ", ".join(
-                    f"'{relation.source}' --> '{relation.target}'"
-                    for relation in pending
-                )
-                available_targets = ", ".join(
-                    f"'{argument}'"
-                    for argument in sorted(candidate.arguments)
-                )
-                raise ValueError(
-                    f"Cannot connect unresolved relations: {unresolved}. "
-                    f"Each target must be an available argument or topic. "
-                    f"Available targets: {available_targets}."
-                )
+                unresolved = ", ".join(f"'{relation.source}' --> '{relation.target}'"
+                                       for relation in pending)
+                available_targets = ", ".join(f"'{argument}'" 
+                                              for argument in sorted(candidate.arguments))
+                raise ValueError(f"Cannot connect unresolved relations: {unresolved}. "
+                                 f"Each target must be an available argument or topic. "
+                                 f"Available targets: {available_targets}.")
         self._outgoing = candidate._outgoing
         self._incoming = candidate._incoming
         self._relations = candidate._relations
