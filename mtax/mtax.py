@@ -188,20 +188,18 @@ class MTAX:
         disclosure = contribution.disclosure
         new_arguments = {argument.label: argument for argument in disclosure.arguments}
         if len(new_arguments) != len(disclosure.arguments):
-            return [self._publish_error(contribution, "Argument labels must be unique within a disclosure.")]
+            return [PublishError(contribution.agent, contribution, None, "Argument labels must be unique within a disclosure.")]
 
         existing_labels = self._state.public_bm.arguments
         redefined = existing_labels & new_arguments.keys()
         if redefined:
             label = sorted(redefined)[0]
-            return [self._publish_error(contribution, f"Argument '{label}' is already in the exchange.")]
+            return [PublishError(contribution.agent, contribution, None, f"Argument '{label}' is already in the exchange.")]
 
         known_labels = existing_labels | new_arguments.keys()
         for relation in disclosure.relations:
             if relation.source not in known_labels:
-                return [self._publish_error(contribution,
-                                            f"Relation source '{relation.source}' is not in the exchange or disclosure.",
-                                            relation)]
+                return [PublishError(contribution.agent, contribution, relation, f"Relation source '{relation.source}' is not in the exchange or disclosure.")]
 
         related_labels = set()
         for relation in disclosure.relations:
@@ -210,26 +208,15 @@ class MTAX:
         unused_arguments = new_arguments.keys() - related_labels
         if unused_arguments:
             label = sorted(unused_arguments)[0]
-            return [self._publish_error(contribution, f"Argument '{label}' has no relation.")]
+            return [PublishError(contribution.agent, contribution, None, f"Argument '{label}' has no relation.")]
 
         try:
             self._state.public_bm.add_relations(disclosure.relations)
         except ValueError as error:
-            return [self._publish_error(contribution, str(error))]
+            return [PublishError(contribution.agent, contribution, None, str(error))]
 
         self._state.public_arguments.update(new_arguments)
         return []
-
-
-    @staticmethod
-    def _publish_error(contribution: Contribution, reason: str, relation: Relation | None = None) -> PublishError:
-        return PublishError(
-            agent=contribution.agent,
-            contribution=contribution,
-            relation=relation,
-            reason=reason,
-        )
-
 
 
     def contributor_mapping(self, relation: Relation) -> tuple[str, int] | None:
