@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 class Contribution:
     disclosure: Disclosure
     agent: str
-    round_index: int
+    time_step: int
 
 
 @dataclass(frozen=True)
@@ -56,8 +56,7 @@ class DialogueState:
     trace: list[Contribution] = field(default_factory=list)
     publish_errors: list[PublishError] = field(default_factory=list)
     agent_statuses: list[AgentStatus] = field(default_factory=list)
-    round_index: int = 0
-    consecutive_all_pass_rounds: int = 0
+    time_step: int = 0
 
     def __post_init__(self) -> None:
         self.public_bm = BipolarMultitree(topics=set(self.topics))
@@ -67,8 +66,8 @@ class DialogueState:
 class ExchangeResult:
     topics: list[str]
     resolved: bool
-    termination_reason: Literal["resolved", "all_passed", "max_rounds"] | None
-    rounds: int
+    termination_reason: Literal["resolved", "max_iterations"] | None
+    iterations: int
     final_state: DialogueState
     trace: list[Contribution]
     metrics: dict[str, float | int | bool | object]
@@ -90,9 +89,7 @@ class MTAX:
         self._validate_agents()
         self.topics = topics
         self.config = config or ExchangeConfig()
-        self.turn_taking = turn_taking or BasicTurnTaking()
-        if self.config.max_consecutive_all_pass_rounds is not None and self.config.max_consecutive_all_pass_rounds < 1:
-            raise ValueError("max_consecutive_all_pass_rounds must be at least 1")
+        self.turn_taking = turn_taking or BasicTurnTaking(self.agents)
         if self.config.resolution == "top_r" and (len(self.topics) < 2 or not 1 <= self.config.top_r <= len(self.topics)):
             raise ValueError("top_r requires at least 2 topics and must not exceed the number of topics")
         self._state = DialogueState(topics=topics)
@@ -103,6 +100,8 @@ class MTAX:
 
     def _validate_agents(self) -> None:
         from mtax.agent import MTAXAgent
+        if not self.agents:
+            raise ValueError("MTAX requires at least one agent")
         for agent in self.agents:
             if type(agent).contribute is MTAXAgent.contribute:
                 raise TypeError(f"{type(agent).__name__} must implement contribute()")
@@ -111,10 +110,8 @@ class MTAX:
 
 
     def __iter__(self):
-        while self._state.round_index < self.config.max_rounds:
-            if (self._state.round_index > 0) and self.config.stop_when_resolved and self.is_resolved():
-                break
-            if self._all_pass_limit_reached():
+        while self._state.time_step < self.config.max_iterations:
+            if self.config.stop_when_resolved and self.is_resolved():
                 break
             yield self.step()
 
@@ -125,57 +122,45 @@ class MTAX:
 
 
     def step(self) -> DialogueState:
-        if self._state.round_index >= self.config.max_rounds or self._all_pass_limit_reached():
+        if self._state.time_step >= self.config.max_iterations:
             return self._state
         self._state.publish_errors = []
         self._state.agent_statuses = []
-        for agent in self.turn_taking(self.agents):
-            feedback = None
-            errors: list[PublishError] = []
-            invalid_response = None
-            for attempt in range(1, self.config.max_retries + 2):
-                try:
-                    disclosure = agent.contribute(
-                        public_bm=deepcopy(self._state.public_bm),
-                        violation_feedback=feedback,
-                    )
-                except InvalidAgentResponse as error:
-                    invalid_response = str(error)
-                    feedback = invalid_response
-                    continue
-                if disclosure is None:
-                    invalid_response = ("No structured response was returned. Return a Disclosure or an explicit Pass.")
-                    feedback = invalid_response
-                    continue
-                if isinstance(disclosure, Pass):
-                    self._state.agent_statuses.append(AgentStatus(agent.name, "passed", disclosure.reason, attempt))
-                    break
-                contribution = Contribution(disclosure=disclosure, agent=agent.name, round_index=self._state.round_index,)
-                errors = self._publish(contribution)
-                if not errors:
-                    self._state.trace.append(contribution)
-                    labels = ", ".join(argument.label for argument in disclosure.arguments)
-                    self._state.agent_statuses.append(AgentStatus(agent.name, "published", labels or "relations only", attempt))
-                    for current_agent in self.agents:
-                        current_agent.ingest(disclosure)
-                    break
-                feedback = errors[0].reason
-            else:
-                if errors:
-                    self._record_rejection(agent.name, errors, self.config.max_retries + 1)
-                else:
-                    self._state.agent_statuses.append(AgentStatus(agent.name, "no_response", invalid_response, self.config.max_retries + 1))
-        if len(self._state.agent_statuses) == len(self.agents) and all(status.outcome == "passed" for status in self._state.agent_statuses):
-            self._state.consecutive_all_pass_rounds += 1
+        agent = self.turn_taking(self._state.time_step)
+        feedback = None
+        errors: list[PublishError] = []
+        invalid_response = None
+        for attempt in range(1, self.config.max_retries + 2):
+            try:
+                disclosure = agent.contribute(public_bm=deepcopy(self._state.public_bm), violation_feedback=feedback)
+            except InvalidAgentResponse as error:
+                invalid_response = str(error)
+                feedback = invalid_response
+                continue
+            if disclosure is None:
+                invalid_response = ("No structured response was returned. Return a Disclosure or an explicit Pass.")
+                feedback = invalid_response
+                continue
+            if isinstance(disclosure, Pass):
+                self._state.agent_statuses.append(AgentStatus(agent.name, "passed", disclosure.reason, attempt))
+                break
+            contribution = Contribution(disclosure=disclosure, agent=agent.name, time_step=self._state.time_step,)
+            errors = self._publish(contribution)
+            if not errors:
+                self._state.trace.append(contribution)
+                labels = ", ".join(argument.label for argument in disclosure.arguments)
+                self._state.agent_statuses.append(AgentStatus(agent.name, "published", labels or "relations only", attempt))
+                for current_agent in self.agents:
+                    current_agent.ingest(disclosure)
+                break
+            feedback = errors[0].reason
         else:
-            self._state.consecutive_all_pass_rounds = 0
-        self._state.round_index += 1
+            if errors:
+                self._record_rejection(agent.name, errors, self.config.max_retries + 1)
+            else:
+                self._state.agent_statuses.append(AgentStatus(agent.name, "no_response", invalid_response, self.config.max_retries + 1))
+        self._state.time_step += 1
         return self._state
-
-
-    def _all_pass_limit_reached(self) -> bool:
-        limit = self.config.max_consecutive_all_pass_rounds
-        return limit is not None and self._state.consecutive_all_pass_rounds >= limit
 
 
     def _record_rejection(self, agent: str, errors: list[PublishError], attempts: int) -> None:
@@ -222,7 +207,7 @@ class MTAX:
     def contributor_mapping(self, relation: Relation) -> tuple[str, int] | None:
         for contribution in self._state.trace:
             if relation in contribution.disclosure.relations:
-                return contribution.agent, contribution.round_index
+                return contribution.agent, contribution.time_step
         return None
 
 
@@ -233,25 +218,21 @@ class MTAX:
 
 
     def result(self) -> ExchangeResult:
-        resolved = False
-        if (self._state.round_index > 0):
-            resolved = self.is_resolved()
+        resolved = self.is_resolved()
         termination_reason = None
         if resolved and self.config.stop_when_resolved:
             termination_reason = "resolved"
-        elif self._all_pass_limit_reached():
-            termination_reason = "all_passed"
-        elif self._state.round_index >= self.config.max_rounds:
-            termination_reason = "max_rounds"
+        elif self._state.time_step >= self.config.max_iterations:
+            termination_reason = "max_iterations"
         return ExchangeResult(
             topics=list(self.topics),
             resolved=resolved,
             termination_reason=termination_reason,
-            rounds=self._state.round_index,
+            iterations=self._state.time_step,
             final_state=self._state,
             trace=list(self._state.trace),
             metrics={
-                "rounds": self._state.round_index,
+                "iterations": self._state.time_step,
                 "num_contributions": len(self._state.trace),
                 "resolved": resolved,
             },

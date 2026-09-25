@@ -30,11 +30,11 @@ class MTAXTerminalUI:
         state = self.exchange.state
         result = self.exchange.result()
         status = "RESOLVED" if result.resolved else "ACTIVE"
-        if state.round_index >= self.exchange.config.max_rounds and not result.resolved:
+        if state.time_step >= self.exchange.config.max_iterations and not result.resolved:
             status = "FINISHED"
         style = {"RESOLVED": "green", "ACTIVE": "yellow", "FINISHED": "red"}[status]
         summary = Text.assemble(
-            f"Round {state.round_index}/{self.exchange.config.max_rounds}",
+            f"Time step {state.time_step}/{self.exchange.config.max_iterations}",
             "  •  ",
             f"{len(state.public_arguments)} arguments",
             "  •  ",
@@ -65,11 +65,11 @@ class MTAXTerminalUI:
 
     def _agent_statuses(self) -> Panel | Table:
         state = self.exchange.state
-        round_index = max(0, state.round_index - 1)
+        time_step = max(0, state.time_step - 1)
         if not state.agent_statuses:
-            return Panel("Waiting for the first round.", title=f"AGENT STATUS · ROUND {round_index}")
+            return Panel("Waiting for the first turn.", title=f"AGENT STATUS · TIME STEP {time_step}")
 
-        table = Table(title=f"AGENT STATUS · ROUND {round_index}", box=box.SIMPLE, expand=True)
+        table = Table(title=f"AGENT STATUS · TIME STEP {time_step}", box=box.SIMPLE, expand=True)
         table.add_column("", width=1)
         table.add_column("Agent", style="bold")
         table.add_column("Status")
@@ -114,8 +114,8 @@ class MTAXTerminalUI:
                 contributor = self.exchange.contributor_mapping(Relation(source=source, target=target, kind=kind)) # type: ignore
                 attribution = ""
                 if contributor is not None:
-                    agent, round_index = contributor
-                    attribution = f"  ·  {agent}, r{round_index}"
+                    agent, time_step = contributor
+                    attribution = f"  ·  {agent}, t{time_step}"
                 color = "green" if kind == "support" else "red"
                 lines.append(Text.assemble(f"   {branch} ", (marker, color), f" ──▶ {destination}{attribution}"))
         return Panel(Group(*lines), title="PUBLIC ARGUMENT GRAPH")
@@ -147,7 +147,7 @@ class MTAXTerminalUI:
         arguments = f"arguments: {labels}" if labels else "relations only"
         count = len(contribution.disclosure.relations)
         return Text(
-            f"r{contribution.round_index:<3} {contribution.agent:<12} "
+            f"t{contribution.time_step:<3} {contribution.agent:<12} "
             f"{arguments}  ·  {count} relation{'s' if count != 1 else ''}"
         )
 
