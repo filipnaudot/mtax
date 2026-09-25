@@ -39,7 +39,7 @@ class MyAgent(MTAXAgent):
 exchange = MTAX(
     agents=[MyAgent("machine"), MyAgent("human")],
     topics=["recommend_x", "recommend_y", "recommend_z"],
-    config=ExchangeConfig(max_rounds=10),
+    config=ExchangeConfig(max_iterations=10),
 )
 
 for state in exchange:

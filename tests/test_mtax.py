@@ -27,25 +27,25 @@ def test_mtax_step_and_result() -> None:
     exchange = MTAX(
         agents=agents, # type: ignore
         topics=["recommend_x", "recommend_y", "recommend_z"],
-        config=ExchangeConfig(max_rounds=2, stop_when_resolved=False),
+        config=ExchangeConfig(max_iterations=2, stop_when_resolved=False),
     )
     state = exchange.step()
-    assert len(state.trace) == 2
-    assert state.round_index == 1
+    assert len(state.trace) == 1
+    assert state.time_step == 1
     assert state.topics == ["recommend_x", "recommend_y", "recommend_z"]
     assert state.trace[0].agent == "machine"
     assert state.trace[0].disclosure.arguments[0].text == "Test argument."
-    assert state.trace[0].round_index == 0
+    assert state.trace[0].time_step == 0
     assert state.public_arguments["arg_0"] == Argument(label="arg_0", text="Test argument.")
     assert agents[0].public_bm.arguments == set(state.topics)
+    for state in exchange: pass
+    assert exchange.state.time_step == 2
     assert agents[1].public_bm.arguments == {*state.topics, "arg_0"}
     assert agents[1].public_bm is not state.public_bm # check deep copy, not original public BM
-    for state in exchange: pass
-    assert exchange.state.round_index == 2
     assert exchange.result().metrics["num_contributions"] == len(exchange.state.trace)
-    assert exchange.result().termination_reason == "max_rounds"
+    assert exchange.result().termination_reason == "max_iterations"
     exchange.step()
-    assert agents[0].public_bm.arguments == {*state.topics, "arg_0", "arg_1"}
+    assert exchange.state.time_step == 2
 
 
 def test_resolved_termination_reason() -> None:
@@ -59,13 +59,28 @@ def test_resolved_termination_reason() -> None:
     exchange = MTAX(
         agents=[PassingAgent("first"), PassingAgent("second")],
         topics=["topic"],
-        config=ExchangeConfig(max_rounds=2),
+        config=ExchangeConfig(max_iterations=2),
     )
 
     exchange.step()
 
     assert exchange.result().resolved
     assert exchange.result().termination_reason == "resolved"
+
+
+def test_initially_resolved_exchange_stops_before_first_turn() -> None:
+    agents = [NeutralAgent("first"), NeutralAgent("second")]
+    exchange = MTAX(agents=agents, topics=["topic"])
+
+    assert list(exchange) == []
+    assert exchange.state.time_step == 0
+    assert exchange.result().resolved
+    assert exchange.result().termination_reason == "resolved"
+
+
+def test_mtax_requires_an_agent() -> None:
+    with pytest.raises(ValueError, match="at least one agent"):
+        MTAX(agents=[], topics=["topic"])
 
 
 def test_active_exchange_has_no_termination_reason() -> None:
@@ -80,27 +95,13 @@ def test_active_exchange_has_no_termination_reason() -> None:
         agents=[PassingAgent("negative", private_strengths={"topic": 0.3}),
                 PassingAgent("positive", private_strengths={"topic": 0.7})],
         topics=["topic"],
-        config=ExchangeConfig(max_rounds=2),
+        config=ExchangeConfig(max_iterations=2),
     )
 
     exchange.step()
 
     assert not exchange.result().resolved
     assert exchange.result().termination_reason is None
-
-
-def test_exchange_stops_after_consecutive_all_pass_rounds() -> None:
-    class PassingAgent(MTAXAgent):
-        def rate(self, argument) -> float:
-            return 0.5
-        def contribute(self, public_bm, violation_feedback=None) -> Pass:
-            return Pass(action="pass")
-    exchange = MTAX(agents=[PassingAgent("first"), PassingAgent("second")],
-                    topics=["topic"],
-                    config=ExchangeConfig(max_rounds=5, stop_when_resolved=False, max_consecutive_all_pass_rounds=2))
-    list(exchange)
-    assert exchange.state.round_index == 2
-    assert exchange.result().termination_reason == "all_passed"
 
 
 def test_top_r_resolution_requires_multiple_topics() -> None:
@@ -156,7 +157,7 @@ def test_contributor_mapping() -> None:
     exchange = MTAX(
         agents=[RelationAgent("human")],
         topics=["recommend_x"],
-        config=ExchangeConfig(max_rounds=1),
+        config=ExchangeConfig(max_iterations=1),
     )
     exchange.step()
     assert exchange.contributor_mapping(relation) == ("human", 0)
@@ -173,7 +174,7 @@ def test_agents_ingest_and_preserve_private_state() -> None:
         def rate(self, argument) -> float:
             return 0.2
     agent = StrengthAgent("human", private_arguments={"private_reason": private_argument})
-    exchange = MTAX(agents=[agent], topics=["recommend_x"], config=ExchangeConfig(max_rounds=1))
+    exchange = MTAX(agents=[agent], topics=["recommend_x"], config=ExchangeConfig(max_iterations=1))
     exchange.step()
     assert agent.private_arguments["private_reason"] == private_argument
     assert agent.private_arguments["cost_is_high"] == Argument(label="cost_is_high", text="The cost is high.")
@@ -260,7 +261,7 @@ def test_invoke_style_agent() -> None:
             except (ValueError, TypeError):
                 return 0.5
 
-    exchange = MTAX(agents=[InvokeAgent()], topics=["aliens_exist"], config=ExchangeConfig(max_rounds=1),)
+    exchange = MTAX(agents=[InvokeAgent()], topics=["aliens_exist"], config=ExchangeConfig(max_iterations=1),)
     exchange.step()
     relation = Relation(source="fermi_paradox", target="aliens_exist", kind="attack")
     disclosure = exchange.state.trace[0].disclosure
@@ -296,7 +297,7 @@ def test_agent_can_disclose_multiple_arguments() -> None:
                     Relation(source="y", target="topic", kind="support"),
                 ], # type: ignore
             )
-    exchange = MTAX(agents=[MultiArgumentAgent("agent")], topics=["topic"], config=ExchangeConfig(max_rounds=1))
+    exchange = MTAX(agents=[MultiArgumentAgent("agent")], topics=["topic"], config=ExchangeConfig(max_iterations=1))
     exchange.step()
     assert set(exchange.state.public_arguments) == {"x", "y"}
     assert len(exchange.state.trace) == 1
@@ -319,13 +320,14 @@ def test_agent_pass_and_rejection_are_recorded(capsys) -> None:
                 arguments=[Argument(label="x", text="Argument x.")], # type: ignore
                 relations=[Relation(source="x", target="unknown", kind="support")], # type: ignore
             )
-    exchange = MTAX(agents=[PassingAgent("passing"), RejectedAgent("rejected")], topics=["topic"], config=ExchangeConfig(max_rounds=1, max_retries=0),)
-    exchange.step()
-    assert exchange.state.agent_statuses[0].outcome == "passed"
-    assert exchange.state.agent_statuses[0].detail == "Nothing useful to add."
-    assert exchange.state.agent_statuses[1].outcome == "rejected"
-    assert "'x' --> 'unknown'" in exchange.state.agent_statuses[1].detail # type: ignore
-    assert "Available targets: 'topic'" in exchange.state.agent_statuses[1].detail # type: ignore
+    exchange = MTAX(agents=[PassingAgent("passing"), RejectedAgent("rejected")], topics=["topic"], config=ExchangeConfig(max_iterations=2, max_retries=0),)
+    passed = exchange.step().agent_statuses[0]
+    rejected = exchange.step().agent_statuses[0]
+    assert passed.outcome == "passed"
+    assert passed.detail == "Nothing useful to add."
+    assert rejected.outcome == "rejected"
+    assert "'x' --> 'unknown'" in rejected.detail # type: ignore
+    assert "Available targets: 'topic'" in rejected.detail # type: ignore
 
 
 def test_invalid_agent_response_is_retried_with_feedback() -> None:
@@ -344,7 +346,7 @@ def test_invalid_agent_response_is_retried_with_feedback() -> None:
             assert violation_feedback == "Response was not valid JSON."
             return Pass(action="pass")
     agent = RetryingAgent()
-    exchange = MTAX(agents=[agent], topics=["topic"], config=ExchangeConfig(max_rounds=1, max_retries=1))
+    exchange = MTAX(agents=[agent], topics=["topic"], config=ExchangeConfig(max_iterations=1, max_retries=1))
     exchange.step()
     assert agent.attempts == 2
     assert exchange.state.agent_statuses[0].outcome == "passed"

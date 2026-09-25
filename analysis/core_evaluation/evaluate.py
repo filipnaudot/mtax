@@ -258,18 +258,23 @@ def create_exchange(config: EvaluationConfig, seed: int) -> tuple[BipolarMultitr
     agents = tuple(agents)
     exchange = MTAX(list(agents),
                     sorted(universal_bm.topics),
-                    ExchangeConfig(max_rounds=config.max_rounds, stop_when_resolved=True, resolution="top_r", semantics=EVALUATION_SEMANTICS, max_consecutive_all_pass_rounds=2)) # type: ignore
+                    ExchangeConfig(max_iterations=config.max_rounds * len(agents), stop_when_resolved=True, resolution="top_r", semantics=EVALUATION_SEMANTICS)) # type: ignore
     return universal_bm, exchange
 
 
 def run_exchange(exchange: MTAX) -> list[AgentStatus]:
-    states = []
     statuses = []
+    consecutive_passes = 0
     for state in exchange:
-        states.append(state)
         statuses.extend(state.agent_statuses)
-    assert states, "exchange did not run"
-    assert states[-1].round_index <= exchange.config.max_rounds, "exchange exceeded max rounds"
+        if state.agent_statuses[0].outcome == "passed":
+            consecutive_passes += 1
+            if consecutive_passes == 2 * len(exchange.agents):
+                break
+        else:
+            consecutive_passes = 0
+    assert statuses, "exchange did not run"
+    assert exchange.state.time_step <= exchange.config.max_iterations, "exchange exceeded max iterations"
     return statuses
 
 
@@ -325,13 +330,13 @@ def experiment_cases(config: EvaluationConfig) -> list[ExperimentCase]:
                 "behaviour",
                 "behaviours",
                 behaviour,
-                replace(config, rating_mode="random", num_agents=len(BEHAVIOURS), behaviours=(behaviour,)),
+                replace(config, rating_mode="stable", num_agents=len(BEHAVIOURS), behaviours=(behaviour,)),
             ))
         cases.append(ExperimentCase(
             "behaviour",
             "behaviours",
             "Mixed",
-            replace(config, rating_mode="random", num_agents=len(BEHAVIOURS), behaviours=BEHAVIOURS),
+            replace(config, rating_mode="stable", num_agents=len(BEHAVIOURS), behaviours=BEHAVIOURS),
         ))
     return cases
 
