@@ -109,11 +109,11 @@ def test_top_r_resolution_requires_multiple_topics() -> None:
         MTAX(agents=[NeutralAgent("agent")], topics=["topic"], config=ExchangeConfig(resolution="top_r"))
 
 
-def test_top_r_ranking_preserves_ties_at_cutoff() -> None:
-    agent = NeutralAgent("agent", private_strengths={"first": 0.9, "second": 0.7, "third": 0.7, "fourth": 0.2})
+def test_top_r_ranking_counts_tie_groups() -> None:
+    agent = NeutralAgent("agent", private_strengths={"first": 0.9, "second": 0.9, "third": 0.7, "fourth": 0.2})
     exchange = MTAX(agents=[agent], topics=["first", "second", "third", "fourth"],
                     config=ExchangeConfig(resolution="top_r", top_r=2))
-    assert exchange.resolution.top_r_ranking(agent, 2) == (frozenset({"first"}), frozenset({"second", "third"}))
+    assert exchange.resolution.top_r_ranking(agent, 2) == (frozenset({"first", "second"}), frozenset({"third"}))
 
 
 def test_agent_stance_uses_agent_specific_thresholds() -> None:
