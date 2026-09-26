@@ -33,10 +33,8 @@ class Resolution:
         }
         ranking = sorted(self.topics, key=strengths.__getitem__, reverse=True)
         groups = []
-        covered_topics = 0
         for _, topics in groupby(ranking, key=strengths.__getitem__):
             group = frozenset(topics)
             groups.append(group)
-            covered_topics += len(group)
-            if covered_topics >= r: break
+            if len(groups) >= r: break
         return tuple(groups)
