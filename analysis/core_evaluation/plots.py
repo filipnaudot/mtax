@@ -103,14 +103,15 @@ def draw_categorical_metric(rows: list[dict[str, str]], experiment: str, metric:
     experiment_rows = [row for row in rows if row["experiment"] == experiment and row["value"] not in exclude_values]
     labels = [display_label(row["value"]) for row in experiment_rows]
     values = [float(row[metric]) for row in experiment_rows]
-    figure, axis = plt.subplots(figsize=(6, 3.5), layout="constrained")
+    figure, axis = plt.subplots(figsize=(6, 2.75), layout="constrained")
     bars = axis.bar(range(len(labels)), values, color=RATING_MODE_COLORS["stable"])
     for bar, value in zip(bars, values):
-        axis.text(bar.get_x() + bar.get_width() / 2, value, rounded_value(value), ha="center", va="bottom", fontsize=9)
+        axis.text(bar.get_x() + bar.get_width() / 2, value, rounded_value(value), ha="center", va="bottom", fontsize=12)
     axis.set(
         title=title,
         xticks=range(len(labels)),
         xticklabels=labels,
+        yticks=(0.2, 0.6, 1.0),
         ylim=(0.0, 1.05),
     )
     axis.tick_params(axis="x", labelsize=9, rotation=45)
