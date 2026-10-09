@@ -74,7 +74,7 @@ def draw_resolution_rate(rows: list[dict[str, str]]):
 
 def draw_ranking_distance(rows: list[dict[str, str]]):
     figure, axes = plt.subplots(1, len(EXPERIMENTS), figsize=(16, 3.5), layout="constrained")
-    figure.suptitle("Average pairwise ranking distance betwen agents by topics, agents, and density", fontsize=16, fontweight="bold")
+    figure.suptitle("Average pairwise ranking distance between agents by topics, agents, and density", fontsize=16, fontweight="bold")
     for axis, experiment in zip(axes, EXPERIMENTS):
         experiment_rows = [row for row in rows if row["experiment"] == experiment]
         if not experiment_rows:
